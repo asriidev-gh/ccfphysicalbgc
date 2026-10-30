@@ -1,0 +1,434 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────── Enums ─────────────
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  ACTIVITY_LEAD
+  PARTICIPANT
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  LIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum ParticipationType {
+  INDIVIDUAL
+  TEAM
+}
+
+enum RegistrationOpenStatus {
+  CLOSED
+  OPEN
+}
+
+enum ChallengeStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum ParticipantStatus {
+  ACTIVE
+  WITHDRAWN
+  DISQUALIFIED
+}
+
+enum RegistrationStatus {
+  CONFIRMED
+  WAITLISTED
+  CANCELLED
+}
+
+enum QueueStatus {
+  NOT_ARRIVED
+  WAITING
+  IN_PROGRESS
+  DONE
+  WITHDRAWN
+}
+
+enum AttemptStatus {
+  RUNNING
+  FINISHED
+  SUBMITTED
+  CANCELLED
+}
+
+enum ResultStatus {
+  VALID
+  INCOMPLETE
+  DISQUALIFIED
+  WITHDRAWN
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DisplayMode {
+  SINGLE_ACTIVITY
+  ALL_SPORTS
+  ROTATE
+}
+
+// ───────────── Identity ─────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions    Session[]
+  assignments ActivityAssignment[]
+  auditLogs   AuditLog[]
+
+  @@index([role])
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ───────────── Event configuration ─────────────
+
+model Event {
+  id                String      @id @default(uuid()) @db.Uuid
+  name              String
+  slug              String      @unique
+  description       String      @default("")
+  organizer         String      @default("")
+  occasion          String      @default("")
+  venue             String
+  startsAt          DateTime
+  endsAt            DateTime
+  registrationOpensAt  DateTime
+  registrationClosesAt DateTime
+  status            EventStatus @default(DRAFT)
+  timeZone          String      @default("Asia/Manila")
+  branding          Json        @default("{}")
+  allowMultipleActivities Boolean @default(true)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  activities     EventActivity[]
+  registrations  Registration[]
+  announcements  Announcement[]
+  displaySettings LeaderboardDisplaySettings?
+
+  @@index([status])
+}
+
+model Sport {
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String
+  slug               String   @unique
+  description        String   @default("")
+  icon               String   @default("trophy")
+  defaultScoring     Json
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  activities EventActivity[]
+}
+
+model EventActivity {
+  id               String            @id @default(uuid()) @db.Uuid
+  eventId          String            @db.Uuid
+  sportId          String            @db.Uuid
+  name             String
+  slug             String
+  description      String            @default("")
+  instructions     String            @default("")
+  location         String            @default("")
+  capacity         Int?
+  waitlistEnabled  Boolean           @default(false)
+  registrationStatus RegistrationOpenStatus @default(OPEN)
+  challengeStatus  ChallengeStatus   @default(DRAFT)
+  participation    ParticipationType @default(INDIVIDUAL)
+  /// Validated by src/lib/scoring/schema.ts. Locked once results exist.
+  scoringConfig    Json
+  scoringVersion   Int               @default(1)
+  requireApproval  Boolean           @default(false)
+  /// When true the submitter cannot approve their own result.
+  independentApproval Boolean        @default(true)
+  leaderboardPublished Boolean       @default(true)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  sortOrder        Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sport   Sport @relation(fields: [sportId], references: [id])
+  assignments ActivityAssignment[]
+  registrations ActivityRegistration[]
+  attempts ChallengeAttempt[]
+  scoringVersions ScoringConfigVersion[]
+
+  @@unique([eventId, slug])
+  @@index([eventId, challengeStatus])
+  @@index([sportId])
+}
+
+model ScoringConfigVersion {
+  id         String   @id @default(uuid()) @db.Uuid
+  activityId String   @db.Uuid
+  version    Int
+  config     Json
+  createdAt  DateTime @default(now())
+
+  activity EventActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  results  ChallengeResult[]
+
+  @@unique([activityId, version])
+}
+
+model ActivityAssignment {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  activityId String   @db.Uuid
+  createdAt  DateTime @default(now())
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity EventActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, activityId])
+  @@index([activityId])
+}
+
+// ───────────── Participants & registration ─────────────
+
+model Participant {
+  id          String            @id @default(uuid()) @db.Uuid
+  fullName    String
+  email       String?
+  mobile      String?
+  affiliation String?
+  eligibility Json              @default("{}")
+  status      ParticipantStatus @default(ACTIVE)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  registrations Registration[]
+  activityRegistrations ActivityRegistration[]
+
+  @@index([fullName])
+  @@index([email])
+}
+
+model Registration {
+  id            String             @id @default(uuid()) @db.Uuid
+  /// Unguessable public reference (also encoded in the QR code). Not a DB id.
+  reference     String             @unique
+  /// Short human code shown to the participant and encoded in the QR (CCFBGC-0427). Unique per event; staff-facing only,
+  /// so it is never accepted as a bare key to the public registration page.
+  code          String
+  participantId String             @db.Uuid
+  eventId       String             @db.Uuid
+  status        RegistrationStatus @default(CONFIRMED)
+  checkedInAt   DateTime?
+  consentAcceptedAt DateTime?
+  consentVersion String?
+  walkIn        Boolean            @default(false)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  event       Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([participantId, eventId])
+  @@unique([eventId, code])
+  @@index([eventId, status])
+  @@index([eventId, createdAt])
+}
+
+model ActivityRegistration {
+  id            String             @id @default(uuid()) @db.Uuid
+  participantId String             @db.Uuid
+  activityId    String             @db.Uuid
+  status        RegistrationStatus @default(CONFIRMED)
+  queueStatus   QueueStatus        @default(NOT_ARRIVED)
+  checkedInAt   DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  participant Participant     @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  activity    EventActivity   @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  attempts    ChallengeAttempt[] @relation("Primary")
+  opponentAttempts ChallengeAttempt[] @relation("Opponent")
+
+  @@unique([participantId, activityId])
+  @@index([activityId, status, queueStatus])
+}
+
+// ───────────── Challenges ─────────────
+
+model ChallengeAttempt {
+  id                     String        @id @default(uuid()) @db.Uuid
+  activityId             String        @db.Uuid
+  activityRegistrationId String        @db.Uuid
+  /// Match-based activities: optional second side.
+  opponentRegistrationId String?       @db.Uuid
+  attemptNumber          Int
+  /// Group start: attempts started together share a per-activity heat number (null for single starts).
+  heat                   Int?
+  status                 AttemptStatus @default(RUNNING)
+  startedAt              DateTime
+  finishedAt             DateTime?
+  /// Authoritative elapsed time in whole milliseconds (integer, never float).
+  elapsedMs              Int?
+  submittedAt            DateTime?
+  startedById            String        @db.Uuid
+  submittedById          String?       @db.Uuid
+  cancellationReason     String?
+  /// Client-provided key so a retried submit cannot double-write.
+  submitKey              String?       @unique
+  createdAt              DateTime      @default(now())
+
+  activity             EventActivity        @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityRegistration ActivityRegistration @relation("Primary", fields: [activityRegistrationId], references: [id], onDelete: Cascade)
+  opponentRegistration ActivityRegistration? @relation("Opponent", fields: [opponentRegistrationId], references: [id], onDelete: SetNull)
+  results              ChallengeResult[]
+
+  @@unique([activityRegistrationId, attemptNumber])
+  @@index([activityId, status])
+  @@index([activityId, heat])
+}
+
+model ChallengeResult {
+  id              String         @id @default(uuid()) @db.Uuid
+  attemptId       String         @db.Uuid
+  /// Correction chain: version 1 is the original; corrections add a new row.
+  version         Int            @default(1)
+  current         Boolean        @default(true)
+  rawData         Json
+  calculatedData  Json
+  penaltyData     Json           @default("{}")
+  /// Primary ranking value. Time-based results are whole milliseconds.
+  finalValue      Decimal?       @db.Decimal(18, 3)
+  resultStatus    ResultStatus   @default(VALID)
+  approvalStatus  ApprovalStatus @default(PENDING)
+  published       Boolean        @default(false)
+  disputed        Boolean        @default(false)
+  disputeNote     String?
+  scoringVersionId String        @db.Uuid
+  submittedById   String         @db.Uuid
+  submittedAt     DateTime       @default(now())
+  approvedById    String?        @db.Uuid
+  approvedAt      DateTime?
+  correctionOfId  String?        @db.Uuid
+  correctionReason String?
+  createdAt       DateTime       @default(now())
+
+  attempt        ChallengeAttempt     @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  scoringVersion ScoringConfigVersion @relation(fields: [scoringVersionId], references: [id])
+  approvals      ResultApproval[]
+
+  @@unique([attemptId, version])
+  @@index([approvalStatus, current])
+  @@index([published, current])
+}
+
+model ResultApproval {
+  id         String         @id @default(uuid()) @db.Uuid
+  resultId   String         @db.Uuid
+  reviewerId String         @db.Uuid
+  decision   ApprovalStatus
+  note       String?
+  createdAt  DateTime       @default(now())
+
+  result ChallengeResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  @@index([resultId])
+}
+
+// ───────────── Content, audit, display ─────────────
+
+model Announcement {
+  id          String    @id @default(uuid()) @db.Uuid
+  eventId     String    @db.Uuid
+  title       String
+  body        String
+  published   Boolean   @default(false)
+  showOnDisplay Boolean @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, published])
+}
+
+model AuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  actorId       String?  @db.Uuid
+  action        String
+  entityType    String
+  entityId      String
+  previous      Json?
+  next          Json?
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([actorId])
+}
+
+model LeaderboardDisplaySettings {
+  id               String      @id @default(uuid()) @db.Uuid
+  eventId          String      @unique @db.Uuid
+  activityId       String?     @db.Uuid
+  mode             DisplayMode @default(ALL_SPORTS)
+  topN             Int         @default(10)
+  rotate           Boolean     @default(false)
+  rotateSeconds    Int         @default(15)
+  paused           Boolean     @default(false)
+  showAnnouncements Boolean    @default(true)
+  updatedAt        DateTime    @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+/// Postgres-backed fixed-window rate limiter for public endpoints (no Redis needed).
+model RateLimit {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now())
+
+  @@index([windowStart])
+}

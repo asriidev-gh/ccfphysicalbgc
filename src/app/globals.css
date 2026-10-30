@@ -1,0 +1,334 @@
+@import "tailwindcss";
+
+/* PHYSICAL BGC design tokens. Single source for colour, type and radii. */
+:root {
+  --bg: #0b0b0c;
+  --surface: #151517;
+  --surface-2: #1d1d20;
+  --line: #2b2b2f;
+  --fg: #f5f5f4;
+  --muted: #a1a1a6;
+  --brand: #e5301f; /* poster red */
+  --brand-strong: #c4220f;
+  --accent: #f08a3c; /* warm orange */
+  --ok: #34c77b;
+  --warn: #f2b134;
+  --bad: #ff5d52;
+  --radius: 6px;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-body), system-ui, sans-serif;
+  --font-display: var(--font-heading), "Arial Narrow", Impact, sans-serif;
+  --radius-sm: 4px;
+  --radius-md: var(--radius);
+}
+
+html {
+  color-scheme: dark;
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+/* Subtle poster-like glow behind public pages. */
+.hero-glow {
+  background:
+    radial-gradient(60rem 28rem at 50% -10%, rgba(229, 48, 31, 0.22), transparent 60%),
+    radial-gradient(40rem 20rem at 85% 10%, rgba(240, 138, 60, 0.1), transparent 60%);
+}
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.live-dot {
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+/* ---------- Home page motion ---------- */
+
+/* Title letters slam in one by one; --i is the letter index. */
+@keyframes slam-in {
+  0% {
+    opacity: 0;
+    transform: translateY(0.55em) scale(1.25) skewX(-8deg);
+    filter: blur(8px);
+  }
+  70% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.slam {
+  display: inline-block;
+  animation: slam-in 0.7s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+  animation-delay: calc(120ms + var(--i, 0) * 55ms);
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+.fade-up {
+  animation: fade-up 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+/* A light sweep across "BGC". */
+@keyframes shine {
+  0%,
+  35% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -40% 0;
+  }
+}
+/* The sweep lives on an overlay copy of the text: background-clip can't paint
+   through the individually transformed letters underneath. */
+.shine {
+  position: relative;
+  display: inline-block;
+  color: var(--brand);
+}
+.shine::after {
+  content: attr(data-text);
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 42%, rgba(255, 222, 208, 0.95) 50%, transparent 58%) 0 0 / 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine 4.5s ease-in-out 1.4s infinite both;
+}
+
+/* The poster's glowing "moon", breathing behind it. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.05);
+  }
+}
+.moon-glow {
+  background: radial-gradient(closest-side, rgba(255, 214, 170, 0.35), rgba(229, 48, 31, 0.18) 55%, transparent);
+  animation: breathe 6s ease-in-out infinite;
+}
+
+/* Poster entrance plus pointer tilt (vars set by <TiltCard>). */
+@keyframes poster-in {
+  from {
+    opacity: 0;
+    transform: perspective(1200px) rotateY(-18deg) translateY(30px) scale(0.92);
+    filter: blur(10px);
+  }
+}
+.tilt {
+  position: relative;
+  transform: perspective(1200px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+.poster-in {
+  animation: poster-in 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) 0.25s both;
+}
+.tilt[data-active] {
+  transition-duration: 0.12s;
+}
+.tilt-glare {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  background: radial-gradient(28rem circle at var(--gx, 50%) var(--gy, 30%), rgba(255, 240, 225, 0.22), transparent 45%);
+  mix-blend-mode: soft-light;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.tilt[data-active] .tilt-glare {
+  opacity: 1;
+}
+
+/* Countdown digit roll. */
+.countdown-cell {
+  display: flex;
+  min-width: 4rem;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  padding: 0.6rem 0.5rem 0.45rem;
+  backdrop-filter: blur(6px);
+}
+@keyframes digit-roll {
+  from {
+    opacity: 0;
+    transform: translateY(-60%);
+    filter: blur(3px);
+  }
+}
+.countdown-digit {
+  display: inline-block;
+  animation: digit-roll 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+/* Infinite sports ticker; the track holds two copies and slides by half. */
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+.marquee {
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 30s linear infinite;
+}
+.marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+/* Cursor-following border light on activity cards (vars set by <SpotlightGroup>). */
+.spotlight {
+  position: relative;
+  isolation: isolate;
+  transition:
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.3s;
+}
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(18rem circle at var(--mx, 50%) var(--my, 0), var(--brand), transparent 60%);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.spotlight::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(22rem circle at var(--mx, 50%) var(--my, 0), rgba(229, 48, 31, 0.09), transparent 55%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.spotlight:hover {
+  transform: translateY(-3px);
+}
+.spotlight:hover::before,
+.spotlight:hover::after {
+  opacity: 1;
+}
+
+.capacity-bar {
+  transform-origin: left;
+}
+
+/* Scroll-driven effects: pure CSS, skipped where unsupported or motion is reduced. */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(40px) scale(0.96);
+  }
+}
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes hero-exit {
+  to {
+    opacity: 0.25;
+    transform: translateY(-60px) scale(0.97);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: reveal-up linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 70%;
+    }
+    .reveal .capacity-bar {
+      animation: grow-x linear both;
+      animation-timeline: view();
+      animation-range: entry 40% cover 35%;
+    }
+    .hero-exit {
+      animation: hero-exit linear both;
+      animation-timeline: scroll();
+      animation-range: 0 70vh;
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+  .tilt {
+    transform: none;
+  }
+  .shine::after {
+    display: none;
+  }
+}
