@@ -6,6 +6,7 @@ import { loadConfig } from "@/lib/services/challenge";
 import { formatValue } from "@/lib/services/leaderboard";
 import { formatDateTime } from "@/lib/utils";
 import { Badge, Card, CardBody, CardHeader, CardTitle, PageTitle } from "@/components/ui";
+import { QrTicket } from "@/components/qr-ticket";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Registration", robots: { index: false } };
@@ -16,9 +17,11 @@ export default async function RegistrationPage({ params }: { params: Promise<{ r
   if (!reg) notFound();
 
   // The QR encodes only the short booth code (a small, easy-to-scan QR): no ids, names or contact details.
+  // Error correction "H" lets the ticket cover the centre with the logo and still scan.
   const qr = await QRCode.toDataURL(reg.code, {
+    errorCorrectionLevel: "H",
     margin: 1,
-    width: 280,
+    width: 520,
     color: { dark: "#0b0b0c", light: "#ffffff" },
   });
 
@@ -47,8 +50,7 @@ export default async function RegistrationPage({ params }: { params: Promise<{ r
       <PageTitle title={cancelled ? "Registration cancelled" : "You're registered!"} sub={reg.event.name} />
       <Card>
         <CardBody className="grid gap-6 sm:grid-cols-[auto_1fr]">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qr} alt={`QR code for registration ${reg.code}`} width={180} height={180} className="mx-auto rounded-md bg-white p-2" />
+          <QrTicket qr={qr} name={reg.participant.fullName} code={reg.code} />
           <div className="space-y-2">
             <p className="text-muted text-xs tracking-wider uppercase">Check-in code</p>
             <p className="tabular font-display text-accent text-3xl font-bold">{reg.code}</p>
