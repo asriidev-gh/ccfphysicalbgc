@@ -18,7 +18,7 @@ export function StaffShell({ actor, title, nav, children }: { actor: Actor; titl
           <Link href="/" className="font-display flex items-center gap-3 text-xl font-bold">
             <Logo size={40} />
             <span>
-              CCF <span className="text-brand">BGC</span> PHYSICAL
+              CCF <span className="text-brand">BGC</span> SPORTS
               <span className="text-muted block text-xs font-medium tracking-widest">{title}</span>
             </span>
           </Link>

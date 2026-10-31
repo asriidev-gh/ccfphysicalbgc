@@ -20,7 +20,7 @@ export default async function PublicLayout({ children }: { children: React.React
           <Link href="/" className="font-display flex items-center gap-3 text-xl font-bold tracking-wide whitespace-nowrap">
             <Logo size={40} />
             <span>
-              CCF <span className="text-brand">BGC</span> PHYSICAL
+              CCF <span className="text-brand">BGC</span> SPORTS
             </span>
           </Link>
           <PublicNav links={links} />

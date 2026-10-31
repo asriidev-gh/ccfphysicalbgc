@@ -17,7 +17,7 @@ export default async function LoginPage() {
         <Link href="/" className="font-display mb-6 flex flex-col items-center gap-3 text-center text-3xl font-bold">
           <Logo size={88} />
           <span>
-            CCF <span className="text-brand">BGC</span> PHYSICAL
+            CCF <span className="text-brand">BGC</span> SPORTS
           </span>
         </Link>
         <Card>
