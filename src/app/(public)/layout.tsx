@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo } from "@/components/logo";
+import { PublicNav } from "@/components/shell/public-nav";
 import { getActor } from "@/lib/auth/session";
 import { homeFor } from "@/lib/auth/session";
 
@@ -11,31 +12,18 @@ const nav = [
 
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
   const actor = await getActor();
+  const links = [...nav, actor ? { href: homeFor(actor.role), label: "Dashboard" } : { href: "/login", label: "Staff login" }];
   return (
     <>
       <header className="border-line bg-bg/90 sticky top-0 z-30 border-b backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-          <Link href="/" className="font-display flex items-center gap-3 text-xl font-bold tracking-wide">
+        <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+          <Link href="/" className="font-display flex items-center gap-3 text-xl font-bold tracking-wide whitespace-nowrap">
             <Logo size={40} />
-            PHYSICAL <span className="text-brand">BGC</span>
+            <span>
+              CCF <span className="text-brand">BGC</span> PHYSICAL
+            </span>
           </Link>
-          <nav aria-label="Main" className="flex items-center gap-1 text-sm font-semibold">
-            {nav.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                className="text-muted hover:bg-surface-2 hover:text-fg inline-flex min-h-11 items-center rounded-md px-3"
-              >
-                {n.label}
-              </Link>
-            ))}
-            <Link
-              href={actor ? homeFor(actor.role) : "/login"}
-              className="text-muted hover:bg-surface-2 hover:text-fg hidden min-h-11 items-center rounded-md px-3 sm:inline-flex"
-            >
-              {actor ? "Dashboard" : "Staff login"}
-            </Link>
-          </nav>
+          <PublicNav links={links} />
         </div>
       </header>
       <main className="flex-1">{children}</main>

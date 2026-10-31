@@ -16,7 +16,9 @@ export default async function LoginPage() {
       <div className="w-full max-w-sm">
         <Link href="/" className="font-display mb-6 flex flex-col items-center gap-3 text-center text-3xl font-bold">
           <Logo size={88} />
-          PHYSICAL <span className="text-brand">BGC</span>
+          <span>
+            CCF <span className="text-brand">BGC</span> PHYSICAL
+          </span>
         </Link>
         <Card>
           <CardBody>
