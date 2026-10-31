@@ -16,10 +16,12 @@ export function DustField({ className }: { className?: string }) {
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx || reducedMotion()) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Phones draw at 1x: the dust is soft dots, and a 2–3x canvas repainted every frame competes with scrolling.
+    const small = window.innerWidth < 640;
+    const dpr = small ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     let w = 0;
     let h = 0;
-    const count = window.innerWidth < 640 ? 36 : 72;
+    const count = small ? 24 : 72;
     const spawn = (anywhere: boolean) => ({
       x: Math.random() * w,
       y: anywhere ? Math.random() * h : h + 10,

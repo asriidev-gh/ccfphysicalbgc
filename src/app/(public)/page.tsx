@@ -107,7 +107,8 @@ export default async function Home() {
             </div>
           </div>
           <div className="poster-in relative mx-auto">
-            <div aria-hidden className="moon-glow absolute -inset-16 rounded-full blur-2xl" />
+            {/* No blur filter: the gradient is already soft, and a blurred layer re-rasterises every animation frame. */}
+            <div aria-hidden className="moon-glow absolute -inset-16 rounded-full" />
             <TiltCard className="rounded-md">
               <Image
                 src="/poster.png"
@@ -115,6 +116,7 @@ export default async function Home() {
                 width={1073}
                 height={1599}
                 priority
+                sizes="(min-width: 768px) 380px, 90vw"
                 className="border-line max-h-[34rem] w-auto rounded-md border object-contain shadow-2xl"
               />
             </TiltCard>

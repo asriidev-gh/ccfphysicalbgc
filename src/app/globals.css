@@ -206,13 +206,16 @@ body {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--surface) 80%, transparent);
   padding: 0.6rem 0.5rem 0.45rem;
-  backdrop-filter: blur(6px);
+}
+@media (min-width: 768px) {
+  .countdown-cell {
+    backdrop-filter: blur(6px);
+  }
 }
 @keyframes digit-roll {
   from {
     opacity: 0;
     transform: translateY(-60%);
-    filter: blur(3px);
   }
 }
 .countdown-digit {

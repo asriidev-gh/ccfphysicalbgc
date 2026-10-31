@@ -15,7 +15,7 @@ export default async function PublicLayout({ children }: { children: React.React
   const links = [...nav, actor ? { href: homeFor(actor.role), label: "Dashboard" } : { href: "/login", label: "Staff login" }];
   return (
     <>
-      <header className="border-line bg-bg/90 sticky top-0 z-30 border-b backdrop-blur">
+      <header className="border-line bg-bg/95 md:bg-bg/90 sticky top-0 z-30 border-b md:backdrop-blur">
         <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
           <Link href="/" className="font-display flex items-center gap-3 text-xl font-bold tracking-wide whitespace-nowrap">
             <Logo size={40} />
