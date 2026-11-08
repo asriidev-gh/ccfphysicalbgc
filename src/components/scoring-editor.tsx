@@ -115,7 +115,6 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
                 aria-label={`Remove ${f.label}`}
                 onClick={() => set({ fields: cfg.fields.filter((_, j) => j !== i) })}
               >
@@ -127,7 +126,6 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
         <Button
           type="button"
           variant="secondary"
-          size="sm"
           className="mt-2"
           onClick={() =>
             set({ fields: [...cfg.fields, { key: `field${cfg.fields.length + 1}`, label: "New field", type: "integer", required: false }] })
@@ -277,7 +275,6 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
             <Button
               type="button"
               variant="ghost"
-              size="sm"
               aria-label="Remove tie-breaker"
               onClick={() => set({ tieBreakers: cfg.tieBreakers.filter((_, j) => j !== i) })}
             >
@@ -288,7 +285,6 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
         <Button
           type="button"
           variant="secondary"
-          size="sm"
           onClick={() => set({ tieBreakers: [...cfg.tieBreakers, { metric: metrics[0], direction: "asc" }] })}
         >
           <Plus className="size-4" /> Add tie-breaker

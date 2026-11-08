@@ -159,7 +159,9 @@ export async function setActivityState(
     // Never activate with invalid or incomplete scoring configuration.
     const cfg = parseScoringConfig(a.scoringConfig);
     if (!cfg.success) throw new AppError("VALIDATION", `Cannot activate: ${cfg.error.issues[0].message}`);
-    if (cfg.data.fields.length === 0) throw new AppError("VALIDATION", "Cannot activate: no scoring fields are defined.");
+    // A TIME challenge is scored by the stopwatch alone, so it needs no entry fields.
+    if (cfg.data.fields.length === 0 && cfg.data.template !== "TIME")
+      throw new AppError("VALIDATION", "Cannot activate: no scoring fields are defined.");
     const snap = await db.scoringConfigVersion.findUnique({ where: { activityId_version: { activityId, version: a.scoringVersion } } });
     if (!snap) throw new AppError("VALIDATION", "Cannot activate: scoring version snapshot missing. Re-save the activity.");
   }

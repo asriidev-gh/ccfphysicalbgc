@@ -9,7 +9,7 @@ export default function FindPage() {
   const router = useRouter();
   return (
     <div className="mx-auto max-w-md px-4 py-8">
-      <PageTitle title="My registration" sub="View your QR code and results, or change your activities." />
+      <PageTitle title="My registration" sub="View your QR code and your results." />
       <Card>
         <CardBody>
           <ActionForm

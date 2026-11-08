@@ -4,20 +4,20 @@ import { StaffShell } from "@/components/shell/staff-shell";
 export const dynamic = "force-dynamic";
 
 const NAV = [
-  ["/admin", "Overview"],
-  ["/admin/events", "Events"],
-  ["/admin/sports", "Sports"],
-  ["/admin/activities", "Event Activities"],
-  ["/admin/participants", "Participants"],
-  ["/admin/registrations", "Registrations"],
-  ["/admin/leads", "Activity Leads"],
-  ["/admin/monitor", "Challenge Monitor"],
-  ["/admin/results", "Results & Approvals"],
-  ["/admin/display", "Leaderboard Control"],
-  ["/admin/announcements", "Announcements"],
-  ["/admin/reports", "Reports & Exports"],
-  ["/admin/audit", "Audit Logs"],
-  ["/admin/settings", "System Settings"],
+  ["/admin", "Overview", "overview"],
+  ["/admin/events", "Events", "events"],
+  ["/admin/sports", "Sports", "sports"],
+  ["/admin/activities", "Event Activities", "eventActivities"],
+  ["/admin/participants", "Participants", "participants"],
+  ["/admin/registrations", "Registrations", "registrations"],
+  ["/admin/leads", "Activity Leads", "leads"],
+  ["/admin/monitor", "Challenge Monitor", "monitor"],
+  ["/admin/results", "Results & Approvals", "results"],
+  ["/admin/display", "Leaderboard Control", "leaderboard"],
+  ["/admin/announcements", "Announcements", "announcements"],
+  ["/admin/reports", "Reports & Exports", "reports"],
+  ["/admin/audit", "Audit Logs", "audit"],
+  ["/admin/settings", "System Settings", "settings"],
 ] as const;
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -26,7 +26,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <StaffShell
       actor={actor}
       title={actor.role === "SUPER_ADMIN" ? "SUPER ADMIN" : "ADMIN"}
-      nav={NAV.map(([href, label]) => ({ href, label }))}
+      nav={NAV.map(([href, label, icon]) => ({ href, label, icon }))}
     >
       {children}
     </StaffShell>

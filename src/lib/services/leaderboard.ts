@@ -8,6 +8,8 @@ import { loadConfig } from "./challenge";
 export interface LeaderboardRow {
   rank: number | null;
   name: string;
+  /** Cloudinary URL of the participant's registration photo, when one was taken. */
+  photoUrl: string | null;
   display: string;
   detail?: string;
   status: ResultStatusValue;
@@ -68,13 +70,19 @@ export async function getLeaderboard(db: Db, activityId: string, opts: Opts = {}
       attempt: {
         select: {
           attemptNumber: true,
-          activityRegistration: { select: { participantId: true, participant: { select: { fullName: true } } } },
-          opponentRegistration: { select: { participantId: true, participant: { select: { fullName: true } } } },
+          activityRegistration: { select: { participantId: true, participant: { select: { fullName: true, photoUrl: true } } } },
+          opponentRegistration: { select: { participantId: true, participant: { select: { fullName: true, photoUrl: true } } } },
         },
       },
     },
   });
 
+  const photos = new Map<string, string | null>();
+  for (const r of results) {
+    for (const reg of [r.attempt.activityRegistration, r.attempt.opponentRegistration]) {
+      if (reg) photos.set(reg.participantId, reg.participant.photoUrl);
+    }
+  }
   const provisionalIds = new Set<string>();
   let entries: RankEntry[];
   if (cfg.template === "MATCH") {
@@ -124,6 +132,7 @@ export async function getLeaderboard(db: Db, activityId: string, opts: Opts = {}
   const rows: LeaderboardRow[] = ranked.map((r) => ({
     rank: r.rank,
     name: r.name,
+    photoUrl: photos.get(r.id) ?? null,
     display:
       r.status === "VALID"
         ? formatValue(cfg, r.primary)

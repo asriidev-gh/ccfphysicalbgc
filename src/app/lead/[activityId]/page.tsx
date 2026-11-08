@@ -62,11 +62,6 @@ export default async function LeadActivityPage({
             <span className="text-muted text-sm">A group starts together. Check runners in, start the heat, tap each finish.</span>
           </Link>
         </div>
-        <p className="mt-6 text-center">
-          <Link href={`/lead/${activityId}/roster`} className="text-brand text-sm font-semibold underline">
-            All participants &amp; leaderboard
-          </Link>
-        </p>
       </div>
     );
   }
@@ -84,9 +79,6 @@ export default async function LeadActivityPage({
                 {multi ? "Multiple" : "Single"} · change
               </Link>
             )}
-            <Link href={`/lead/${activityId}/roster`} className="text-brand underline">
-              All participants &amp; leaderboard
-            </Link>
           </div>
         }
       />

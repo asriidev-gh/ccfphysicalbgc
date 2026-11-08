@@ -89,7 +89,6 @@ export default async function LeadsPage() {
                     action={updateUserAction.bind(null, u.id, {})}
                     submitLabel="Reset password"
                     variant="secondary"
-                    size="sm"
                     success="Password reset; user signed out."
                     reset
                     className="flex flex-wrap items-start gap-2"

@@ -235,6 +235,8 @@ model Participant {
   email       String?
   mobile      String?
   affiliation String?
+  /// Cloudinary delivery URL of the registration photo (unguessable public id).
+  photoUrl    String?
   eligibility Json              @default("{}")
   status      ParticipantStatus @default(ACTIVE)
   createdAt   DateTime          @default(now())
@@ -246,6 +248,7 @@ model Participant {
   @@index([fullName])
   @@index([email])
 }
+
 
 model Registration {
   id            String             @id @default(uuid()) @db.Uuid

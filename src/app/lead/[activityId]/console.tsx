@@ -16,6 +16,7 @@ import {
   scanLookupAction,
   startAction,
   submitAction,
+  withdrawAction,
 } from "@/app/actions/lead";
 import { ActionForm } from "@/components/action-form";
 import { QrScanner } from "./scanner";
@@ -24,6 +25,7 @@ import { Badge, Button, Card, CardBody, Input, Select, Stat } from "@/components
 import { calculate, formatDuration, ScoringError } from "@/lib/scoring/engine";
 import type { ActionResult } from "@/lib/errors";
 import type { LeadAttempt, LeadConsoleData, LeadRow } from "@/lib/services/lead";
+import { photoThumb } from "@/lib/photo-url";
 import { cn } from "@/lib/utils";
 
 type Filter = "ALL" | "NO_RECORD" | "NOT_ARRIVED" | "WAITING" | "IN_PROGRESS" | "DONE";
@@ -219,14 +221,14 @@ function HeatSelectBar({
           {ids.length} selected <span className="text-muted font-normal">· they all start on the same server instant</span>
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" size="sm" onClick={() => onPicked(allVisible ? new Set() : new Set(visible.map((r) => r.id)))}>
+          <Button variant="secondary" onClick={() => onPicked(allVisible ? new Set() : new Set(visible.map((r) => r.id)))}>
             {allVisible ? "Clear" : "Select all shown"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={onStop}>
+          <Button variant="ghost" onClick={onStop}>
             Cancel
           </Button>
           <Button
-            size="lg"
+           
             disabled={pending || data.activity.status !== "ACTIVE" || ids.length === 0}
             onClick={() => run(() => startHeatAction(ids), onStop)}
           >
@@ -269,6 +271,7 @@ function ParticipantCard({
     row.participantStatus === "ACTIVE" &&
     !running &&
     !finished;
+  const canWithdraw = used === 0 && !running && !finished && (row.queue === "NOT_ARRIVED" || row.queue === "WAITING");
 
   return (
     <Card>
@@ -282,6 +285,17 @@ function ParticipantCard({
                 checked={select.checked}
                 onChange={select.onToggle}
                 className="size-6 shrink-0 accent-[var(--brand)]"
+              />
+            )}
+            {row.photoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- small Cloudinary thumbnail
+              <img
+                src={photoThumb(row.photoUrl, 96)}
+                alt=""
+                width={48}
+                height={48}
+                loading="lazy"
+                className="size-12 shrink-0 rounded-full object-cover"
               />
             )}
             <div className="min-w-0">
@@ -305,7 +319,7 @@ function ParticipantCard({
 
           <div className="flex flex-wrap items-center gap-2">
             {row.queue === "NOT_ARRIVED" && (
-              <Button size="lg" variant="accent" disabled={pending} onClick={() => run(() => checkInAction(row.id))}>
+              <Button variant="accent" disabled={pending} onClick={() => run(() => checkInAction(row.id))}>
                 <UserCheck className="size-5" aria-hidden /> Check in
               </Button>
             )}
@@ -322,7 +336,7 @@ function ParticipantCard({
                   </Select>
                 )}
                 <Button
-                  size="lg"
+                 
                   disabled={pending || (isMatch && !opponent)}
                   onClick={() => run(() => startAction(row.id, isMatch ? opponent : undefined))}
                 >
@@ -330,6 +344,7 @@ function ParticipantCard({
                 </Button>
               </>
             )}
+            {canWithdraw && <WithdrawParticipant id={row.id} />}
           </div>
         </div>
 
@@ -350,7 +365,7 @@ function ParticipantCard({
               className="tabular font-display block text-5xl font-bold"
             />
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="lg" disabled={pending} onClick={() => run(() => finishAction(running.id))}>
+              <Button disabled={pending} onClick={() => run(() => finishAction(running.id))}>
                 <Square className="size-5" aria-hidden /> Stop &amp; score
               </Button>
               <CancelAttempt attemptId={running.id} />
@@ -431,7 +446,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
               </Button>
             )}
             <Button
-              size="lg"
+             
               disabled={pending || !active || chosen.length === 0}
               onClick={() =>
                 run(
@@ -487,7 +502,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
                         className="tabular font-display text-3xl font-bold"
                       />
                     </div>
-                    <Button size="lg" disabled={pending} onClick={() => run(() => finishRunnerAction(attempt.id))}>
+                    <Button disabled={pending} onClick={() => run(() => finishRunnerAction(attempt.id))}>
                       <Square className="size-5" aria-hidden /> Finish
                     </Button>
                   </div>
@@ -551,11 +566,33 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
   );
 }
 
+function WithdrawParticipant({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  if (!open)
+    return (
+      <Button variant="ghost" onClick={() => setOpen(true)}>
+        <X className="size-5" aria-hidden /> Cancel
+      </Button>
+    );
+  return (
+    <ActionForm
+      action={withdrawAction.bind(null, id)}
+      submitLabel="Remove from event"
+      variant="danger"
+      confirm="Remove this participant from this activity? They will no longer take part."
+      className="flex flex-wrap items-start gap-2"
+      buttonClassName="mt-0"
+    >
+      <Input name="reason" required minLength={3} placeholder="Reason (e.g. no show)" aria-label="Reason" className="w-52" />
+    </ActionForm>
+  );
+}
+
 function CancelAttempt({ attemptId }: { attemptId: string }) {
   const [open, setOpen] = useState(false);
   if (!open)
     return (
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+      <Button variant="ghost" onClick={() => setOpen(true)}>
         <X className="size-4" aria-hidden /> Cancel attempt
       </Button>
     );
@@ -564,7 +601,6 @@ function CancelAttempt({ attemptId }: { attemptId: string }) {
       action={cancelAttemptAction.bind(null, attemptId)}
       submitLabel="Confirm cancel"
       variant="danger"
-      size="sm"
       className="flex flex-wrap items-start gap-2"
       buttonClassName="mt-0"
     >
@@ -687,19 +723,18 @@ function ResultLine({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
               <span className="text-muted text-xs">A different reviewer must approve</span>
             ) : (
               <>
-                <Button size="sm" disabled={pending} onClick={() => run(() => reviewAction(r.id, "APPROVED"))}>
+                <Button disabled={pending} onClick={() => run(() => reviewAction(r.id, "APPROVED"))}>
                   <Check className="size-4" aria-hidden /> Approve
                 </Button>
-                <Button size="sm" variant="danger" disabled={pending} onClick={() => run(() => reviewAction(r.id, "REJECTED"))}>
+                <Button variant="danger" disabled={pending} onClick={() => run(() => reviewAction(r.id, "REJECTED"))}>
                   Reject
                 </Button>
               </>
             ))}
-          <Button size="sm" variant="ghost" onClick={() => setEdit((e) => !e)}>
+          <Button variant="ghost" onClick={() => setEdit((e) => !e)}>
             <Pencil className="size-4" aria-hidden /> Edit score
           </Button>
           <Button
-            size="sm"
             variant="ghost"
             disabled={pending}
             onClick={() => {
@@ -710,7 +745,7 @@ function ResultLine({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
             <Trash2 className="size-4" aria-hidden /> Delete
           </Button>
           {!r.disputed && (
-            <Button size="sm" variant="ghost" onClick={() => setFlag((f) => !f)}>
+            <Button variant="ghost" onClick={() => setFlag((f) => !f)}>
               <Flag className="size-4" aria-hidden /> Flag
             </Button>
           )}
@@ -726,7 +761,6 @@ function ResultLine({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
         <ActionForm
           action={disputeAction.bind(null, r.id)}
           submitLabel="Submit dispute"
-          size="sm"
           variant="secondary"
           className="mt-2"
           onDone={() => setFlag(false)}
@@ -861,7 +895,7 @@ function ScorePanel({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
               <option value="WITHDRAWN">Withdrawn</option>
             </Select>
           </div>
-          <Button size="lg" onClick={toReview}>
+          <Button onClick={toReview}>
             Review result
           </Button>
         </div>
@@ -909,10 +943,10 @@ function ScorePanel({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
             </p>
           )}
           <div className="flex gap-2">
-            <Button variant="secondary" size="lg" onClick={() => setReview(false)} disabled={pending}>
+            <Button variant="secondary" onClick={() => setReview(false)} disabled={pending}>
               Edit
             </Button>
-            <Button size="lg" onClick={submit} disabled={pending}>
+            <Button onClick={submit} disabled={pending}>
               {pending && <Loader2 className="size-5 animate-spin" aria-hidden />} Confirm &amp; submit
             </Button>
           </div>
@@ -1003,7 +1037,7 @@ function BoothScan({
         ) : (
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="lg" onClick={() => setScanning((v) => !v)}>
+              <Button className="ml-auto" onClick={() => setScanning((v) => !v)}>
                 <QrCode className="size-5" aria-hidden /> {scanning ? "Close scanner" : "Scan participant QR"}
               </Button>
               <form

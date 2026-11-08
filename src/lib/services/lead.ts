@@ -31,6 +31,8 @@ export interface LeadRow {
   name: string;
   /** Short booth code (CCFBGC-0427); staff-facing. */
   code: string;
+  /** Cloudinary URL of the registration photo, or null when none was taken. */
+  photoUrl: string | null;
   queue: "NOT_ARRIVED" | "WAITING" | "IN_PROGRESS" | "DONE" | "WITHDRAWN";
   participantStatus: string;
   attempts: LeadAttempt[];
@@ -58,7 +60,7 @@ export async function listMyActivities(db: Db, actor: Actor) {
   return db.eventActivity.findMany({
     where: ids === null ? {} : { id: { in: ids } },
     orderBy: [{ event: { startsAt: "desc" } }, { sortOrder: "asc" }],
-    select: { id: true, name: true, challengeStatus: true, event: { select: { name: true } }, sport: { select: { icon: true } } },
+    select: { id: true, name: true, eventId: true, challengeStatus: true, event: { select: { name: true } }, sport: { select: { icon: true } } },
   });
 }
 
@@ -78,6 +80,7 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
         select: {
           fullName: true,
           status: true,
+          photoUrl: true,
           registrations: { where: { eventId: a.eventId }, select: { code: true }, take: 1 },
         },
       },
@@ -114,6 +117,7 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
     id: r.id,
     name: r.participant.fullName,
     code: r.participant.registrations[0]?.code ?? "",
+    photoUrl: r.participant.photoUrl,
     queue: r.queueStatus,
     participantStatus: r.participant.status,
     attempts: r.attempts.map((t) => {
@@ -193,8 +197,12 @@ export async function lookupByReference(db: Db, actor: Actor, activityId: string
     },
   });
   if (!reg || reg.event.activities.length === 0) throw new AppError("NOT_FOUND", "Registration not found for this event.");
-  const ar = await db.activityRegistration.findUnique({
+  if (reg.status === "CANCELLED") throw new AppError("CONFLICT", `${reg.participant.fullName}'s registration was cancelled.`);
+  // Everyone registered may join any activity; enrol on first scan (covers activities added after they registered).
+  const ar = await db.activityRegistration.upsert({
     where: { participantId_activityId: { participantId: reg.participant.id, activityId } },
+    update: {},
+    create: { participantId: reg.participant.id, activityId, status: "CONFIRMED" },
     select: { id: true, status: true },
   });
   if (!ar || ar.status !== "CONFIRMED") {

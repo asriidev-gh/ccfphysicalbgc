@@ -18,6 +18,7 @@ import {
   reviewResult,
   startAttempt,
   startHeat,
+  withdrawFromActivity,
   submitResult,
 } from "@/lib/services/challenge";
 
@@ -36,6 +37,17 @@ export async function startAction(activityRegistrationId: string, opponentRegist
       opponentRegistrationId: opponentRegistrationId ? z.string().uuid().parse(opponentRegistrationId) : undefined,
     });
   });
+}
+
+export async function withdrawAction(activityRegistrationId: string, fd: FormData) {
+  return toResult(async () =>
+    withdrawFromActivity(
+      db,
+      await requireActionRole(...STAFF),
+      z.string().uuid().parse(activityRegistrationId),
+      String(fd.get("reason") ?? ""),
+    ),
+  );
 }
 
 export async function startHeatAction(activityRegistrationIds: string[]) {

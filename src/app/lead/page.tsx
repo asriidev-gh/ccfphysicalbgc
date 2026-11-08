@@ -1,18 +1,21 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requirePageRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listMyActivities } from "@/lib/services/lead";
 import { Badge, Card, EmptyState, PageTitle } from "@/components/ui";
 import { SportIcon } from "@/components/sport-icon";
 
-export const metadata = { title: "My activities" };
+export const metadata = { title: "Check-In" };
 
 export default async function LeadHome() {
   const actor = await requirePageRole("ACTIVITY_LEAD", "ADMIN", "SUPER_ADMIN");
   const acts = await listMyActivities(db, actor);
+  // A lead with a single activity goes straight to its console instead of a one-item list.
+  if (actor.role === "ACTIVITY_LEAD" && acts.length === 1) redirect(`/lead/${acts[0].id}`);
   return (
     <div className="mx-auto max-w-3xl">
-      <PageTitle title="My activities" sub={`Signed in as ${actor.name}`} />
+      <PageTitle title="Check-In" sub={`Signed in as ${actor.name}`} />
       {acts.length === 0 ? (
         <EmptyState title="No activities assigned" hint="Ask an administrator to assign you to an activity." />
       ) : (

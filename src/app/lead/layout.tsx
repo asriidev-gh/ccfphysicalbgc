@@ -6,7 +6,12 @@ export const dynamic = "force-dynamic";
 export default async function LeadLayout({ children }: { children: React.ReactNode }) {
   // Admins may also open the lead console; leads only see their assignments (enforced per query).
   const actor = await requirePageRole("ACTIVITY_LEAD", "ADMIN", "SUPER_ADMIN");
-  const nav = [{ href: "/lead", label: "My activities" }, ...(actor.role !== "ACTIVITY_LEAD" ? [{ href: "/admin", label: "Admin" }] : [])];
+  const nav = [
+    { href: "/lead", label: "Check-In", icon: "activities" as const },
+    { href: "/lead/leaderboard", label: "Leaderboard", icon: "leaderboard" as const },
+    { href: "/lead/settings", label: "Settings", icon: "settings" as const },
+    ...(actor.role !== "ACTIVITY_LEAD" ? [{ href: "/admin", label: "Admin", icon: "overview" as const }] : []),
+  ];
   return (
     <StaffShell actor={actor} title="ACTIVITY LEAD" nav={nav}>
       {children}

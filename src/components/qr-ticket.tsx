@@ -125,7 +125,7 @@ export function QrTicket({ qr, name, code }: { qr: string; name: string; code: s
         aria-label={`QR code for registration ${code}, ${name}`}
         className="aspect-[600/804] h-auto w-full rounded-xl bg-white"
       />
-      <Button type="button" variant="secondary" size="sm" className="w-full" onClick={download} disabled={!ready}>
+      <Button type="button" variant="secondary" className="w-full" onClick={download} disabled={!ready}>
         <Download className="size-4" aria-hidden />
         Download QR
       </Button>

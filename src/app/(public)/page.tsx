@@ -1,12 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
+import { headers } from "next/headers";
+import QRCode from "qrcode";
 import { CalendarDays, MapPin } from "lucide-react";
 import { db } from "@/lib/db";
 import { getCurrentEvent } from "@/lib/event";
 import { formatDateTime, formatTime } from "@/lib/utils";
 import { Badge, buttonVariants, Card, CardBody, EmptyState } from "@/components/ui";
 import { SportIcon } from "@/components/sport-icon";
-import { Countdown, DustField, SpotlightGroup, TiltCard } from "@/components/home-motion";
+import { DustField, SpotlightGroup, TiltCard } from "@/components/home-motion";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +50,13 @@ export default async function Home() {
       });
   const now = new Date();
   const open = event.status !== "COMPLETED" && now >= event.registrationOpensAt && now <= event.registrationClosesAt;
+  // The sign-up QR points at the registration form. Prefer the configured public URL, else the host serving this request.
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
+  const base = (process.env.NEXT_PUBLIC_APP_URL || (host ? `${proto}://${host}` : "")).replace(/\/$/, "");
+  const signupUrl = `${base}/register`;
+  const signupQr = open ? await QRCode.toDataURL(signupUrl, { errorCorrectionLevel: "M", margin: 2, width: 360 }) : null;
   // Repeat short lists so one copy of the ticker is always wider than the screen.
   const ticker = list.length ? Array.from({ length: Math.ceil(8 / list.length) }, () => list).flat() : [];
 
@@ -72,9 +81,25 @@ export default async function Home() {
                 </span>
               </span>
             </h1>
-            <div className="fade-up mt-6" style={delay(1000)}>
-              <Countdown startsAt={event.startsAt.toISOString()} endsAt={event.endsAt.toISOString()} />
-            </div>
+            {signupQr && (
+              <div
+                className="fade-up border-line bg-surface mt-6 flex items-center gap-4 rounded-md border p-3 sm:max-w-sm"
+                style={delay(1000)}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- a generated data URL, nothing to optimise */}
+                <img
+                  src={signupQr}
+                  alt={`QR code that opens the sign-up form at ${signupUrl}`}
+                  width={120}
+                  height={120}
+                  className="size-30 shrink-0 rounded bg-white"
+                />
+                <div>
+                  <p className="font-display text-xl leading-tight font-bold uppercase">Scan to join the challenge</p>
+                  <p className="text-muted mt-1 text-xs">Point your phone camera at the code to open the sign-up form.</p>
+                </div>
+              </div>
+            )}
             <ul className="fade-up mt-6 space-y-2 text-base" style={delay(1100)}>
               <li className="flex items-start gap-2">
                 <CalendarDays className="text-accent mt-0.5 size-5 shrink-0" aria-hidden />

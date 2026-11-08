@@ -4,6 +4,36 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Medal, Radio } from "lucide-react";
 import type { Leaderboard } from "@/lib/services/leaderboard";
 import { cn, formatTime } from "@/lib/utils";
+import { photoThumb } from "@/lib/photo-url";
+
+function initialsOf(name: string) {
+  const parts = name.trim().split(/s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return (parts.length === 1 ? parts[0].slice(0, 2) : `${parts[0][0]}${parts[parts.length - 1][0]}`).toUpperCase();
+}
+
+function ParticipantPhoto({ name, photoUrl, big }: { name: string; photoUrl: string | null; big?: boolean }) {
+  const box = big ? "size-24" : "size-16";
+  if (!photoUrl) {
+    return (
+      <span
+        aria-hidden
+        className={cn("bg-surface-2 text-muted flex shrink-0 items-center justify-center rounded-full text-sm font-bold", box)}
+      >
+        {initialsOf(name)}
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- small Cloudinary thumbnail
+    <img
+      src={photoThumb(photoUrl, big ? 192 : 128)}
+      alt=""
+      loading="lazy"
+      className={cn("shrink-0 rounded-full object-cover", box)}
+    />
+  );
+}
 
 export type Connection = "connecting" | "live" | "reconnecting";
 
@@ -106,6 +136,7 @@ export function BoardTable({ board, limit, big, query }: { board: Leaderboard | 
           {r.rank !== null && r.rank <= 3 && (
             <Medal aria-hidden className={cn(big ? "size-8" : "size-5", r.rank === 1 ? "text-accent" : "text-muted")} />
           )}
+          <ParticipantPhoto name={r.name} photoUrl={r.photoUrl} big={big} />
           <span className="min-w-0 flex-1 truncate font-semibold">
             {r.name}
             {r.provisional && (

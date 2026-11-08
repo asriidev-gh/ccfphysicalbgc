@@ -5,6 +5,7 @@ import type { Db, Tx } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { assertAdmin, type Actor } from "@/lib/auth/policy";
 import { audit } from "./audit";
+import { uploadPhoto } from "./photo";
 
 export const CONSENT_VERSION = "2026-v1";
 
@@ -45,30 +46,24 @@ const optionalText = (max: number) =>
  * Public registration input. There is deliberately no role, status, or participant id
  * field: whatever else a client sends is stripped by zod.
  */
-export const registrationInput = z
-  .object({
-    fullName: z.string().trim().min(2, "Please enter your full name").max(100),
-    email: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .email("Enter a valid email")
-      .max(200)
-      .optional()
-      .or(z.literal("").transform(() => undefined)),
-    mobile: z
-      .string()
-      .trim()
-      .max(30)
-      .optional()
-      .transform((v) => (v ? normalizeMobile(v) : undefined))
-      .refine((v) => v === undefined || /^(\+?\d{10,13}|0\d{10})$/.test(v), "Enter a valid mobile number"),
-    affiliation: optionalText(100),
-    activityIds: z.array(z.string().uuid()).max(20),
-    consent: z.literal(true, { error: "You must accept the terms to register" }),
-    eligibilityConfirmed: z.literal(true, { error: "Please confirm you are fit to participate" }),
-  })
-  .refine((v) => v.email || v.mobile, { message: "Provide an email or a mobile number", path: ["email"] });
+export const registrationInput = z.object({
+  fullName: z.string().trim().min(2, "Please enter your full name").max(100),
+  email: z.string().trim().toLowerCase().min(1, "Please enter your email").email("Enter a valid email").max(200),
+  mobile: z
+    .string()
+    .trim()
+    .max(30)
+    .optional()
+    .transform((v) => (v ? normalizeMobile(v) : undefined))
+    .refine((v) => v === undefined || /^(\+?\d{10,13}|0\d{10})$/.test(v), "Enter a valid mobile number"),
+  affiliation: optionalText(100),
+  /** JPEG data URL (resized by the browser). Optional here; the public form requires it. */
+  photo: z.string().max(220_000).optional(),
+  /** Omitted on the public form: the participant is enrolled in every activity of the event. */
+  activityIds: z.array(z.string().uuid()).max(20).optional(),
+  consent: z.literal(true, { error: "You must accept the terms to register" }),
+  eligibilityConfirmed: z.literal(true, { error: "Please confirm you are fit to participate" }),
+});
 
 export type RegistrationInput = z.input<typeof registrationInput>;
 
@@ -132,6 +127,16 @@ async function applyActivities(tx: Tx, args: { participantId: string; eventId: s
   return result;
 }
 
+/** Enrol a participant in every activity of the event (no capacity or per-activity registration window). */
+export async function enrolInAllActivities(tx: Tx, participantId: string, eventId: string) {
+  const acts = await tx.eventActivity.findMany({ where: { eventId }, select: { id: true } });
+  await tx.activityRegistration.createMany({
+    data: acts.map((a) => ({ participantId, activityId: a.id, status: "CONFIRMED" as const })),
+    skipDuplicates: true,
+  });
+  return acts.map((a) => ({ activityId: a.id, status: "CONFIRMED" as const }));
+}
+
 /** Promote the oldest waitlisted enrolments while capacity is free. Caller holds the activity lock. */
 export async function promoteWaitlist(tx: Tx, activityId: string): Promise<number> {
   const a = await tx.eventActivity.findUnique({ where: { id: activityId }, select: { capacity: true } });
@@ -168,6 +173,8 @@ export async function registerParticipant(db: Db, eventSlug: string, rawInput: u
     throw new AppError("CONFLICT", "This event is archived.");
   }
 
+  // Uploaded before the transaction so a slow network call never holds database locks.
+  const photoUrl = input.photo ? await uploadPhoto(input.photo) : undefined;
   try {
     return await db.$transaction(async (tx) => {
       // Duplicate = same person: same name AND same email/mobile. Relatives often share one contact.
@@ -197,6 +204,7 @@ export async function registerParticipant(db: Db, eventSlug: string, rawInput: u
           email: input.email,
           mobile: input.mobile,
           affiliation: input.affiliation,
+          photoUrl,
           eligibility: { confirmed: true },
         },
       });
@@ -216,12 +224,14 @@ export async function registerParticipant(db: Db, eventSlug: string, rawInput: u
           walkIn: Boolean(opts.walkInBy),
         },
       });
-      const activities = await applyActivities(tx, {
-        participantId: participant.id,
-        eventId: event.id,
-        desired: [...new Set(input.activityIds)],
-        allowMultiple: event.allowMultipleActivities,
-      });
+      const activities = input.activityIds
+        ? await applyActivities(tx, {
+            participantId: participant.id,
+            eventId: event.id,
+            desired: [...new Set(input.activityIds)],
+            allowMultiple: event.allowMultipleActivities,
+          })
+        : await enrolInAllActivities(tx, participant.id, event.id);
       await audit(tx, {
         actorId: opts.walkInBy?.id ?? null,
         action: opts.walkInBy ? "registration.walk_in" : "registration.create",

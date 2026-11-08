@@ -8,6 +8,7 @@ import { calculate, elapsedBetween, ScoringError } from "@/lib/scoring/engine";
 import { parseScoringConfig, type ScoringConfig } from "@/lib/scoring/schema";
 import { publish } from "@/lib/realtime/bus";
 import { audit } from "./audit";
+import { promoteWaitlist } from "./registration";
 
 export function loadConfig(json: unknown): ScoringConfig {
   const p = parseScoringConfig(json);
@@ -48,6 +49,33 @@ export async function checkIn(db: Db, actor: Actor, activityRegistrationId: stri
     await audit(tx, { actorId: actor.id, action: "checkin", entityType: "ActivityRegistration", entityId: ar.id });
   });
   return { alreadyCheckedIn: false };
+}
+
+/** Lead removes a participant from this activity for good (frees the slot; waitlist is promoted). */
+export async function withdrawFromActivity(db: Db, actor: Actor, activityRegistrationId: string, reason: string) {
+  const ar = await db.activityRegistration.findUnique({ where: { id: activityRegistrationId } });
+  if (!ar) throw new AppError("NOT_FOUND", "Participant not found.");
+  await assertActivityAccess(db, actor, ar.activityId);
+  const why = reason.trim();
+  if (why.length < 3) throw new AppError("VALIDATION", "Please give a reason.");
+  await db.$transaction(async (tx) => {
+    await lockEnrolment(tx, ar.id);
+    const cur = await tx.activityRegistration.findUniqueOrThrow({ where: { id: ar.id } });
+    if (cur.status === "CANCELLED") return;
+    const started = await tx.challengeAttempt.count({ where: { activityRegistrationId: ar.id, status: { not: "CANCELLED" } } });
+    if (started > 0) throw new AppError("CONFLICT", "This participant already has attempts. Cancel them first.");
+    await tx.activityRegistration.update({ where: { id: ar.id }, data: { status: "CANCELLED", queueStatus: "WITHDRAWN" } });
+    await promoteWaitlist(tx, ar.activityId);
+    await audit(tx, {
+      actorId: actor.id,
+      action: "withdraw",
+      entityType: "ActivityRegistration",
+      entityId: ar.id,
+      previous: { status: cur.status },
+      next: { status: "CANCELLED", reason: why },
+    });
+  });
+  return { withdrawn: true };
 }
 
 // ───────── Start / finish / cancel ─────────

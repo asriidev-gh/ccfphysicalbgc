@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { db } from "@/lib/db";
+import { photoThumb } from "@/lib/photo-url";
 import { getRegistrationByReference } from "@/lib/services/registration";
 import { loadConfig } from "@/lib/services/challenge";
 import { formatValue } from "@/lib/services/leaderboard";
@@ -54,7 +55,19 @@ export default async function RegistrationPage({ params }: { params: Promise<{ r
           <div className="space-y-2">
             <p className="text-muted text-xs tracking-wider uppercase">Check-in code</p>
             <p className="tabular font-display text-accent text-3xl font-bold">{reg.code}</p>
-            <p className="font-semibold">{reg.participant.fullName}</p>
+            <div className="flex items-center gap-3">
+              {reg.participant.photoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element -- small Cloudinary thumbnail
+                <img
+                  src={photoThumb(reg.participant.photoUrl, 112)}
+                  alt=""
+                  width={56}
+                  height={56}
+                  className="size-14 rounded-full object-cover"
+                />
+              )}
+              <p className="font-semibold">{reg.participant.fullName}</p>
+            </div>
             <p className="text-muted text-sm">
               {formatDateTime(reg.event.startsAt, reg.event.timeZone)} · {reg.event.venue}
             </p>
@@ -71,7 +84,7 @@ export default async function RegistrationPage({ params }: { params: Promise<{ r
 
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Your activities</CardTitle>
+          <CardTitle>Enjoy our sports challenge in the following sports</CardTitle>
         </CardHeader>
         <CardBody>
           {mine.length === 0 ? (
