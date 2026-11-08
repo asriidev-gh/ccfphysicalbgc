@@ -51,6 +51,31 @@ export async function checkIn(db: Db, actor: Actor, activityRegistrationId: stri
   return { alreadyCheckedIn: false };
 }
 
+/** Undo a check-in (participant decided not to continue). Only while waiting with no attempts. */
+export async function checkOut(db: Db, actor: Actor, activityRegistrationId: string) {
+  const ar = await db.activityRegistration.findUnique({ where: { id: activityRegistrationId } });
+  if (!ar) throw new AppError("NOT_FOUND", "Participant not found.");
+  await assertActivityAccess(db, actor, ar.activityId);
+  await db.$transaction(async (tx) => {
+    await lockEnrolment(tx, ar.id);
+    const cur = await tx.activityRegistration.findUniqueOrThrow({ where: { id: ar.id } });
+    if (cur.queueStatus === "NOT_ARRIVED") return;
+    if (cur.queueStatus !== "WAITING") throw new AppError("CONFLICT", "Only participants who are waiting can be checked out.");
+    const started = await tx.challengeAttempt.count({ where: { activityRegistrationId: ar.id, status: { not: "CANCELLED" } } });
+    if (started > 0) throw new AppError("CONFLICT", "This participant already has attempts, so they cannot be checked out.");
+    await tx.activityRegistration.update({ where: { id: ar.id }, data: { queueStatus: "NOT_ARRIVED", checkedInAt: null } });
+    await audit(tx, {
+      actorId: actor.id,
+      action: "checkout",
+      entityType: "ActivityRegistration",
+      entityId: ar.id,
+      previous: { queueStatus: "WAITING" },
+      next: { queueStatus: "NOT_ARRIVED" },
+    });
+  });
+  return { checkedOut: true };
+}
+
 /** Lead removes a participant from this activity for good (frees the slot; waitlist is promoted). */
 export async function withdrawFromActivity(db: Db, actor: Actor, activityRegistrationId: string, reason: string) {
   const ar = await db.activityRegistration.findUnique({ where: { id: activityRegistrationId } });

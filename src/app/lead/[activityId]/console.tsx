@@ -6,6 +6,7 @@ import { AlertTriangle, Check, Flag, Loader2, Pencil, Trash2, Play, QrCode, Squa
 import {
   cancelAttemptAction,
   checkInAction,
+  checkOutAction,
   correctAction,
   deleteResultAction,
   disputeAction,
@@ -228,7 +229,6 @@ function HeatSelectBar({
             Cancel
           </Button>
           <Button
-           
             disabled={pending || data.activity.status !== "ACTIVE" || ids.length === 0}
             onClick={() => run(() => startHeatAction(ids), onStop)}
           >
@@ -336,7 +336,6 @@ function ParticipantCard({
                   </Select>
                 )}
                 <Button
-                 
                   disabled={pending || (isMatch && !opponent)}
                   onClick={() => run(() => startAction(row.id, isMatch ? opponent : undefined))}
                 >
@@ -446,7 +445,6 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
               </Button>
             )}
             <Button
-             
               disabled={pending || !active || chosen.length === 0}
               onClick={() =>
                 run(
@@ -695,7 +693,7 @@ function ResultLine({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
   const mustBeOther = data.activity.independentApproval && r.mine;
   return (
     <li className="py-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <span className="text-muted text-xs">
             Attempt {attempt.number}
@@ -703,53 +701,57 @@ function ResultLine({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
           </span>
           <p className="tabular font-display text-2xl font-bold">{r.display}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {r.disputed ? (
-            <Badge tone="bad">Disputed</Badge>
+        {r.disputed ? (
+          <Badge tone="bad">Disputed</Badge>
+        ) : (
+          <Badge tone={r.approval === "APPROVED" ? "ok" : r.approval === "REJECTED" ? "bad" : "warn"}>
+            {r.approval === "APPROVED"
+              ? r.published
+                ? "Published"
+                : "Approved"
+              : r.approval === "PENDING"
+                ? "Awaiting approval"
+                : "Rejected"}
+          </Badge>
+        )}
+      </div>
+
+      {r.approval === "PENDING" && !r.disputed && (
+        <div className="mt-3">
+          {mustBeOther ? (
+            <span className="text-muted text-xs">A different reviewer must approve</span>
           ) : (
-            <Badge tone={r.approval === "APPROVED" ? "ok" : r.approval === "REJECTED" ? "bad" : "warn"}>
-              {r.approval === "APPROVED"
-                ? r.published
-                  ? "Published"
-                  : "Approved"
-                : r.approval === "PENDING"
-                  ? "Awaiting approval"
-                  : "Rejected"}
-            </Badge>
-          )}
-          {r.approval === "PENDING" &&
-            !r.disputed &&
-            (mustBeOther ? (
-              <span className="text-muted text-xs">A different reviewer must approve</span>
-            ) : (
-              <>
-                <Button disabled={pending} onClick={() => run(() => reviewAction(r.id, "APPROVED"))}>
-                  <Check className="size-4" aria-hidden /> Approve
-                </Button>
-                <Button variant="danger" disabled={pending} onClick={() => run(() => reviewAction(r.id, "REJECTED"))}>
-                  Reject
-                </Button>
-              </>
-            ))}
-          <Button variant="ghost" onClick={() => setEdit((e) => !e)}>
-            <Pencil className="size-4" aria-hidden /> Edit score
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={pending}
-            onClick={() => {
-              if (window.confirm("Delete this score? It is removed from the leaderboard and the participant can run again."))
-                run(() => deleteResultAction(r.id));
-            }}
-          >
-            <Trash2 className="size-4" aria-hidden /> Delete
-          </Button>
-          {!r.disputed && (
-            <Button variant="ghost" onClick={() => setFlag((f) => !f)}>
-              <Flag className="size-4" aria-hidden /> Flag
-            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button disabled={pending} onClick={() => run(() => reviewAction(r.id, "APPROVED"))}>
+                <Check className="size-4" aria-hidden /> Approve
+              </Button>
+              <Button variant="danger" disabled={pending} onClick={() => run(() => reviewAction(r.id, "REJECTED"))}>
+                Reject
+              </Button>
+            </div>
           )}
         </div>
+      )}
+
+      <div className={cn("mt-3 grid gap-2", r.disputed ? "grid-cols-2" : "grid-cols-3")}>
+        <Button variant="secondary" onClick={() => setEdit((e) => !e)}>
+          <Pencil className="size-4" aria-hidden /> Edit
+        </Button>
+        {!r.disputed && (
+          <Button variant="secondary" onClick={() => setFlag((f) => !f)}>
+            <Flag className="size-4" aria-hidden /> Flag
+          </Button>
+        )}
+        <Button
+          variant="danger"
+          disabled={pending}
+          onClick={() => {
+            if (window.confirm("Delete this score? It is removed from the leaderboard and the participant can run again."))
+              run(() => deleteResultAction(r.id));
+          }}
+        >
+          <Trash2 className="size-4" aria-hidden /> Delete
+        </Button>
       </div>
       {error && (
         <p role="alert" className="text-bad mt-2 text-sm">
@@ -895,9 +897,7 @@ function ScorePanel({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
               <option value="WITHDRAWN">Withdrawn</option>
             </Select>
           </div>
-          <Button onClick={toReview}>
-            Review result
-          </Button>
+          <Button onClick={toReview}>Review result</Button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -978,6 +978,34 @@ function BoothScan({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const [showIn, setShowIn] = useState(false);
+  const [hideDone, setHideDone] = useState(true);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const canHeat = data.activity.status === "ACTIVE" && data.activity.config.template !== "MATCH";
+  const togglePick = (id: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  async function startPicked() {
+    const ids = [...picked].filter((id) => {
+      const r = data.rows.find((x) => x.id === id);
+      return r && heatEligible(r, data);
+    });
+    if (ids.length === 0) return setError("Select at least one participant who is ready to start.");
+    setBusy(true);
+    const st = await startHeatAction(ids);
+    setBusy(false);
+    if (!st.ok) return setError(st.error);
+    setError(null);
+    setSelecting(false);
+    setPicked(new Set());
+    router.refresh();
+  }
+  const checkedIn = data.rows.filter((r) => r.queue !== "NOT_ARRIVED" && r.queue !== "WITHDRAWN" && !(hideDone && r.queue === "DONE"));
 
   async function handle(text: string) {
     if (busyRef.current) return;
@@ -990,15 +1018,18 @@ function BoothScan({
       if (!r.ok) return setError(r.error);
       const id = r.data.activityRegistrationId;
       const row = data.rows.find((x) => x.id === id);
-      if (row?.queue === "NOT_ARRIVED") {
-        const c = await checkInAction(id);
-        if (!c.ok) return setError(c.error);
-      }
+      const already = !!row && row.queue !== "NOT_ARRIVED";
       setCode("");
       if (multi) {
-        // Group mode: scanning only checks runners in; they are started together from the heat panel.
-        setNotice(`${row?.name ?? "Runner"} is checked in and ready for the heat.`);
+        // Group mode: scanning checks runners in; they are started together from the heat panel.
+        if (!already) {
+          const c = await checkInAction(id);
+          if (!c.ok) return setError(c.error);
+        }
+        setNotice(already ? `${row?.name} is already checked in.` : `${row?.name ?? "Runner"} is checked in and ready for the heat.`);
       } else {
+        // Booth mode: scanning only pulls the participant up. Staff tap "Check in" themselves.
+        setNotice(already ? `${row?.name} is already checked in.` : null);
         onFocus(id);
         setScanning(false);
       }
@@ -1019,11 +1050,18 @@ function BoothScan({
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <p className="text-muted text-xs tracking-wider uppercase">Now serving</p>
               <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => onFocus(null)}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setNotice(null);
+                    onFocus(null);
+                  }}
+                >
                   Done
                 </Button>
                 <Button
                   onClick={() => {
+                    setNotice(null);
                     onFocus(null);
                     setScanning(true);
                   }}
@@ -1032,6 +1070,11 @@ function BoothScan({
                 </Button>
               </div>
             </div>
+            {notice && (
+              <p role="status" className="text-ok mb-3 text-sm font-medium">
+                {notice}
+              </p>
+            )}
             <ParticipantCard row={focus} data={data} others={data.rows.filter((o) => o.id !== focus.id && o.queue === "WAITING")} />
           </div>
         ) : (
@@ -1065,6 +1108,119 @@ function BoothScan({
                 </Button>
               </form>
             </div>
+            <Button variant="secondary" onClick={() => setShowIn((v) => !v)} className="self-start">
+              <Users className="size-5" aria-hidden /> {showIn ? "Hide checked in" : `See All Checked In (${checkedIn.length})`}
+            </Button>
+            {showIn && canHeat && (
+              <div className="flex flex-wrap items-center gap-2">
+                {!selecting ? (
+                  <Button variant="secondary" onClick={() => setSelecting(true)}>
+                    <Play className="size-5" aria-hidden /> Start Multiple
+                  </Button>
+                ) : (
+                  <>
+                    <Button disabled={busy || picked.size === 0} onClick={startPicked}>
+                      {busy ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} Start{" "}
+                      {picked.size} together
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setSelecting(false);
+                        setPicked(new Set());
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+            {showIn && (
+              <label className="flex min-h-11 items-center gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={hideDone}
+                  onChange={(e) => setHideDone(e.target.checked)}
+                  className="size-5 accent-[var(--brand)]"
+                />
+                Hide Done Players
+              </label>
+            )}
+            {showIn && (
+              <ul className="divide-line border-line max-h-80 divide-y overflow-y-auto rounded-md border">
+                {checkedIn.length === 0 && <li className="text-muted p-3 text-sm">Nobody has checked in yet.</li>}
+                {checkedIn
+                  .filter((r) => !(selecting && r.queue === "DONE"))
+                  .map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-3 p-3">
+                      {selecting && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${r.name}`}
+                          disabled={!heatEligible(r, data)}
+                          checked={picked.has(r.id)}
+                          onChange={() => togglePick(r.id)}
+                          className="size-6 shrink-0 accent-[var(--brand)]"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
+                        onClick={() => (selecting ? togglePick(r.id) : onFocus(r.id))}
+                      >
+                        <span className="block max-w-full truncate font-semibold">{r.name}</span>
+                        <span className="text-muted tabular text-xs">{r.code}</span>
+                        <Badge tone={queueTone[r.queue]}>{r.queue.replace("_", " ")}</Badge>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {r.attempts.find((t) => t.status === "RUNNING") && (
+                          <RunningTimer
+                            startedAt={r.attempts.find((t) => t.status === "RUNNING")!.startedAt}
+                            serverNow={data.serverNow}
+                            className="tabular font-display text-2xl font-bold"
+                          />
+                        )}
+                        {!selecting && data.activity.status === "ACTIVE" && heatEligible(r, data) && (
+                          <Button
+                            disabled={busy}
+                            onClick={async () => {
+                              // Matches need an opponent, so open the participant card to pick one.
+                              if (data.activity.config.template === "MATCH") return onFocus(r.id);
+                              setBusy(true);
+                              const st = await startAction(r.id);
+                              setBusy(false);
+                              if (!st.ok) return setError(st.error);
+                              setError(null);
+                              if (!multi) onFocus(r.id);
+                              router.refresh();
+                            }}
+                          >
+                            <Play className="size-5" aria-hidden /> Start
+                          </Button>
+                        )}
+                        {!selecting && r.queue === "WAITING" && r.attempts.every((a) => a.status === "CANCELLED") && (
+                          <Button
+                            variant="danger"
+                            disabled={busy}
+                            onClick={async () => {
+                              if (!window.confirm(`Check out ${r.name}? They will go back to "not arrived".`)) return;
+                              setBusy(true);
+                              const c = await checkOutAction(r.id);
+                              setBusy(false);
+                              if (!c.ok) return setError(c.error);
+                              setError(null);
+                              router.refresh();
+                            }}
+                          >
+                            Check out
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            )}
             {scanning && <QrScanner onScan={handle} />}
             {notice && (
               <p role="status" className="text-ok text-sm">

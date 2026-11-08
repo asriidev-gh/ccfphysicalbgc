@@ -9,6 +9,7 @@ import { lookupByReference } from "@/lib/services/lead";
 import {
   cancelAttempt,
   checkIn,
+  checkOut,
   correctResult,
   deleteResult,
   dismissDispute,
@@ -27,6 +28,10 @@ const STAFF = ["SUPER_ADMIN", "ADMIN", "ACTIVITY_LEAD"] as const;
 
 export async function checkInAction(activityRegistrationId: string) {
   return toResult(async () => checkIn(db, await requireActionRole(...STAFF), z.string().uuid().parse(activityRegistrationId)));
+}
+
+export async function checkOutAction(activityRegistrationId: string) {
+  return toResult(async () => checkOut(db, await requireActionRole(...STAFF), z.string().uuid().parse(activityRegistrationId)));
 }
 
 export async function startAction(activityRegistrationId: string, opponentRegistrationId?: string) {
