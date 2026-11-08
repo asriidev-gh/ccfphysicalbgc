@@ -435,3 +435,29 @@ model RateLimit {
 
   @@index([windowStart])
 }
+
+/// A finished photobooth strip/collage posted by a visitor. The image lives on Cloudinary.
+model BoothPhoto {
+  id         String   @id @default(uuid()) @db.Uuid
+  imageUrl   String
+  templateId String
+  likeCount  Int      @default(0)
+  hidden     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  likes BoothLike[]
+
+  @@index([hidden, createdAt])
+  @@index([hidden, likeCount])
+}
+
+/// One like per anonymous device (voterHash = hash of a random cookie id).
+model BoothLike {
+  photoId   String   @db.Uuid
+  voterHash String
+  createdAt DateTime @default(now())
+
+  photo BoothPhoto @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@id([photoId, voterHash])
+}

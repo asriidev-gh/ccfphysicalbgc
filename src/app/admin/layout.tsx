@@ -15,6 +15,7 @@ const NAV = [
   ["/admin/results", "Results & Approvals", "results"],
   ["/admin/display", "Leaderboard Control", "leaderboard"],
   ["/admin/announcements", "Announcements", "announcements"],
+  ["/admin/booth", "Photobooth", "booth"],
   ["/admin/reports", "Reports & Exports", "reports"],
   ["/admin/audit", "Audit Logs", "audit"],
   ["/admin/settings", "System Settings", "settings"],

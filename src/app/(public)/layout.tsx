@@ -7,6 +7,7 @@ import { homeFor } from "@/lib/auth/session";
 const nav = [
   { href: "/register", label: "Register" },
   { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/booth", label: "Photobooth" },
   { href: "/find", label: "My registration" },
 ];
 

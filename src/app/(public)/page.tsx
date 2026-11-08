@@ -129,6 +129,9 @@ export default async function Home() {
               <Link href="/leaderboard" className={cn(buttonVariants({ variant: "secondary", size: "lg" }))}>
                 Live leaderboard
               </Link>
+              <Link href="/booth" className={cn(buttonVariants({ variant: "secondary", size: "lg" }))}>
+                Photobooth
+              </Link>
             </div>
           </div>
           <div className="poster-in relative mx-auto">

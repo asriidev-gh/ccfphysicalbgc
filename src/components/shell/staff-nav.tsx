@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  Camera,
   CalendarDays,
   ClipboardList,
   Dumbbell,
@@ -40,6 +41,7 @@ const ICONS = {
   results: ShieldCheck,
   leaderboard: Trophy,
   announcements: Megaphone,
+  booth: Camera,
   reports: BarChart3,
   audit: ScrollText,
   settings: Settings,
