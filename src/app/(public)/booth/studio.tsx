@@ -19,6 +19,7 @@ import {
   type StickerGroup,
 } from "@/lib/booth/stickers";
 import { cn } from "@/lib/utils";
+import { StickerThumb } from "./sticker-thumb";
 
 const MAX_BYTES = 2_900_000;
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -604,7 +605,8 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
             {(
               [
                 ["faith", "Faith"],
-                ["sport", "Sports & fun"],
+                ["sport", "Sports"],
+                ["fun", "Props & fun"],
               ] as const
             ).map(([g, label]) => (
               <button
@@ -622,31 +624,20 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
               </button>
             ))}
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-2">
+          <div className="border-line bg-surface grid max-h-60 grid-cols-3 gap-2 overflow-y-auto rounded-md border p-2 sm:grid-cols-4">
             {STICKER_CATALOG.filter((d) => d.group === group).map((def) => (
               <button
-                key={def.text}
+                key={`${def.kind}:${def.text}`}
                 type="button"
-                aria-label={`Add sticker ${def.text}`}
+                aria-label={`Add sticker ${def.text.replace(/\n/g, " ")}`}
                 onClick={() => addSticker(def)}
                 className={cn(
-                  "inline-flex min-h-11 shrink-0 items-center justify-center rounded-md px-3 font-bold",
-                  def.kind === "emoji" ? "bg-surface-2 text-2xl" : def.kind === "text" ? "bg-surface-2 text-lg" : "text-xs",
+                  "bg-surface-2 hover:bg-line grid min-h-14 place-items-center rounded-md px-1 py-1 font-bold",
+                  def.kind === "emoji" ? "text-2xl" : "text-xs",
                 )}
-                style={
-                  def.kind === "badge"
-                    ? { background: def.color, color: def.ink }
-                    : def.kind === "text"
-                      ? {
-                          color: def.color,
-                          fontFamily: def.font && def.font !== "slab" ? fonts[def.font] : undefined,
-                          WebkitTextStroke: `1px ${def.ink}`,
-                          paintOrder: "stroke fill",
-                        }
-                      : undefined
-                }
+                style={def.kind === "badge" ? { background: def.color, color: def.ink } : undefined}
               >
-                {def.text.replace(/\n/g, " ")}
+                {def.kind === "emoji" || def.kind === "badge" ? def.text.replace(/\n/g, " ") : <StickerThumb def={def} />}
               </button>
             ))}
           </div>

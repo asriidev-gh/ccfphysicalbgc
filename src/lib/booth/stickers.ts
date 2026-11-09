@@ -1,17 +1,22 @@
-/** Photobooth stickers: drawn on the canvas (emoji, lettering and badges), so they end up inside the exported JPEG. */
+import { drawShape, shapeAspect } from "./shapes";
+
+/** Photobooth stickers: drawn on the canvas (emoji, lettering, badges, props and speech bubbles), so they end up inside the exported JPEG. */
 
 export type StickerFont = "slab" | "script" | "marker" | "comic" | "lobster" | "elegant" | "condensed" | "serif";
 
 export interface Sticker {
   id: string;
-  /** emoji: one glyph. badge: text on a coloured pill. text: outlined lettering with no background. */
-  kind: "emoji" | "badge" | "text";
+  /**
+   * emoji: one glyph. badge: text on a coloured pill. text: outlined lettering with no background.
+   * shape: a vector prop, `text` is its id (see shapes.ts). bubble: speech bubble with `text` inside.
+   */
+  kind: "emoji" | "badge" | "text" | "shape" | "bubble";
   /** Use \n for a second line. */
   text: string;
   font?: StickerFont;
-  /** Badge fill, or the lettering colour for kind "text". */
+  /** Badge or bubble fill, or the lettering colour for kind "text". */
   color?: string;
-  /** Badge text colour, or the lettering outline colour for kind "text". */
+  /** Badge or bubble text colour, or the lettering outline colour for kind "text". */
   ink?: string;
   /** Centre, in pixels of the template. */
   x: number;
@@ -22,11 +27,19 @@ export interface Sticker {
   rot: number;
 }
 
-export type StickerGroup = "faith" | "sport";
+export type StickerGroup = "faith" | "sport" | "fun";
 export type StickerDef = Pick<Sticker, "kind" | "text" | "font" | "color" | "ink"> & { group: StickerGroup };
 
 const faith = (def: Omit<StickerDef, "group">): StickerDef => ({ ...def, group: "faith" });
 const sport = (def: Omit<StickerDef, "group">): StickerDef => ({ ...def, group: "sport" });
+const fun = (def: Omit<StickerDef, "group">): StickerDef => ({ ...def, group: "fun" });
+
+type Maker = (def: Omit<StickerDef, "group">) => StickerDef;
+const word = (make: Maker, text: string, font: StickerFont, color: string, ink: string): StickerDef =>
+  make({ kind: "text", text, font, color, ink });
+const bubble = (make: Maker, text: string, color: string, ink: string, font: StickerFont = "marker"): StickerDef =>
+  make({ kind: "bubble", text, font, color, ink });
+const prop = (make: Maker, id: string): StickerDef => make({ kind: "shape", text: id });
 
 export const STICKER_CATALOG: StickerDef[] = [
   faith({ kind: "text", text: "I ❤️ Jesus", font: "script", color: "#ffffff", ink: "#e5301f" }),
@@ -44,6 +57,45 @@ export const STICKER_CATALOG: StickerDef[] = [
   faith({ kind: "badge", text: "FAITH • FAMILY • FITNESS", font: "slab", color: "#e5301f", ink: "#ffffff" }),
   faith({ kind: "badge", text: "CCF FAMILY", font: "slab", color: "#f2b134", ink: "#111111" }),
   ...["✝️", "🙏", "🕊️", "📖", "⛪", "😇", "❤️", "🙌"].map((text): StickerDef => faith({ kind: "emoji", text })),
+  prop(faith, "halo"),
+  prop(faith, "fish"),
+  prop(faith, "cross"),
+  bubble(faith, "LOVE LIKE\nJESUS", "#6a2db0", "#ffd23f", "comic"),
+  bubble(faith, "I AM A\nCHILD OF GOD", "#ff3fa0", "#fff7a8", "comic"),
+  bubble(faith, "FAITH, HOPE\n& LOVE", "#bfe9ff", "#e8611a", "comic"),
+  bubble(faith, "SAVED BY\nHIS GRACE", "#e5301f", "#ffffff", "comic"),
+  bubble(faith, "PRAY MORE,\nWORRY LESS", "#e9f9e1", "#1f4f8a"),
+  bubble(faith, "GOD IS GOOD!", "#ffd23f", "#d6336c", "comic"),
+  bubble(faith, "GOD'S PLAN", "#ffffff", "#243b9a", "comic"),
+  bubble(faith, "JESUS IS\nLORD!", "#151517", "#ffffff"),
+  bubble(faith, "THANKS BE\nTO GOD!", "#151517", "#ffffff"),
+  word(faith, "SPEAK\nLIFE", "condensed", "#ffd23f", "#1b1b1d"),
+  word(faith, "NEW\nCREATION", "comic", "#ffffff", "#111111"),
+  word(faith, "FOR HIS\nGLORY", "comic", "#ffd23f", "#111111"),
+  word(faith, "HOPE\nIN HIM", "condensed", "#ffffff", "#b3541e"),
+  word(faith, "Filled\nwith Joy", "lobster", "#ffe9b8", "#8a5a00"),
+  word(faith, "FAITH OVER\nNOISE", "comic", "#8ee0ff", "#0b2a52"),
+  word(faith, "GRACE\nOVER GRIND", "condensed", "#ffffff", "#6a1bb1"),
+  word(faith, "Calm in\nChrist", "lobster", "#bff5d9", "#0b5a45"),
+  word(faith, "GOD IS\nIN CHARGE", "comic", "#8ee0ff", "#0b2a52"),
+  word(faith, "Faith Still\nWorks", "lobster", "#ffb3d6", "#6b0f3a"),
+  word(faith, "GOD DID!", "comic", "#aee3ff", "#111111"),
+  word(faith, "Feeling\nBlessed", "script", "#ffffff", "#111111"),
+  word(faith, "PRAY MORE\nWorry Less", "comic", "#ffffff", "#111111"),
+  word(faith, "Holy Spirit\nACTIVATE", "script", "#ffd23f", "#111111"),
+  word(faith, "Won't He\nDO IT", "lobster", "#ffd0c7", "#111111"),
+  word(faith, "Too Blessed\nto be Stressed", "script", "#f3c969", "#111111"),
+  word(faith, "Prayer\nChanges Things", "lobster", "#ffe08a", "#111111"),
+  word(faith, "Faith Can Move\nMountains", "script", "#ffffff", "#111111"),
+  word(faith, "His Grace\nis Enough", "lobster", "#ffffff", "#b3891f"),
+  word(faith, "Created with\nA Purpose", "script", "#bfe3ff", "#111111"),
+  word(faith, "Try Jesus\nNot Me!", "script", "#ffffff", "#111111"),
+  word(faith, "I Vibe Heavy\nwith God", "lobster", "#f3c969", "#111111"),
+  word(faith, "Pray &\nSlay", "script", "#ff4f9a", "#ffffff"),
+  word(faith, "Faith Hope\nLove", "lobster", "#ffb3d6", "#111111"),
+  word(faith, "Keep the\nFAITH", "lobster", "#ffffff", "#c4220f"),
+  word(faith, "AMEN", "comic", "#ffd23f", "#7a2e0a"),
+  word(faith, "HALLELUJAH", "comic", "#ffffff", "#6a1bb1"),
 
   sport({ kind: "badge", text: "CCF BGC SPORTS", font: "slab", color: "#e5301f", ink: "#ffffff" }),
   sport({ kind: "badge", text: "2ND YEAR!", font: "slab", color: "#f08a3c", ink: "#111111" }),
@@ -53,9 +105,45 @@ export const STICKER_CATALOG: StickerDef[] = [
   sport({ kind: "badge", text: "SQUAD GOALS", font: "slab", color: "#34c77b", ink: "#111111" }),
   sport({ kind: "text", text: "GAME ON!", font: "comic", color: "#ffd23f", ink: "#111111" }),
   sport({ kind: "text", text: "Let's Go!", font: "script", color: "#ffffff", ink: "#e5301f" }),
+  prop(sport, "foam-finger"),
+  prop(sport, "pennant"),
+  prop(sport, "popcorn"),
+  bubble(sport, "GO, FIGHT,\nWIN!", "#151517", "#ffffff"),
+  bubble(sport, "ALL I DO\nIS BALL", "#1f56c4", "#ffffff", "comic"),
+  bubble(sport, "GAME DAY!", "#e5301f", "#ffffff", "comic"),
+  bubble(sport, "WE'RE #1!", "#17a2c9", "#ffffff", "comic"),
+  bubble(sport, "MVP!", "#ffd23f", "#111111", "comic"),
   ...["🏆", "🥇", "🔥", "💪", "⭐", "🎉", "👑", "😎", "⚡", "🏃", "🏀", "⚽", "🏸", "🏓", "🏋️"].map((text): StickerDef =>
     sport({ kind: "emoji", text }),
   ),
+
+  ...[
+    "mustache",
+    "mustache2",
+    "glasses-round",
+    "glasses-heart",
+    "glasses-star",
+    "shades",
+    "crown",
+    "party-hat",
+    "top-hat",
+    "bowler",
+    "lips",
+    "bunny",
+    "bow-tie",
+    "heart",
+    "star",
+  ].map((id) => prop(fun, id)),
+  bubble(fun, "#SELFIE", "#151517", "#ffffff"),
+  bubble(fun, "CHEERS!", "#151517", "#ffffff"),
+  bubble(fun, "DANCING\nQUEEN", "#151517", "#ffffff"),
+  bubble(fun, "THANK YOU!", "#151517", "#ffffff"),
+  bubble(fun, "I CAME FOR\nTHE CAKE!", "#151517", "#ffffff"),
+  bubble(fun, "OMG!", "#ffd23f", "#111111", "comic"),
+  bubble(fun, "SQUAD", "#a53a12", "#ffffff", "comic"),
+  bubble(fun, "BEST DAY\nEVER!", "#f59f0b", "#ffffff", "comic"),
+  word(fun, "Photo\nBooth", "script", "#ff4f2e", "#111111"),
+  ...["🎈", "🎂", "🥳", "🎊", "🤩", "😂", "🍕", "📸"].map((text): StickerDef => fun({ kind: "emoji", text })),
 ];
 
 const EMOJI_FONT = `"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
@@ -120,6 +208,12 @@ function textMetrics(s: Sticker, px: number) {
 /** Full width and height of a sticker's (unrotated) box. */
 export function stickerBox(s: Sticker): { w: number; h: number } {
   if (s.kind === "emoji") return { w: s.size * 1.2, h: s.size * 1.2 };
+  if (s.kind === "shape") return { w: s.size * 1.1 * shapeAspect(s.text), h: s.size * 1.1 };
+  if (s.kind === "bubble") {
+    const m = textMetrics(s, s.size * 0.36);
+    const body = m.lines.length * m.lineH + s.size * 0.3;
+    return { w: m.w + s.size * 0.55, h: body * 1.28 };
+  }
   if (s.kind === "text") {
     const m = textMetrics(s, s.size * 0.6);
     return { w: m.w + s.size * 0.3, h: m.lines.length * m.lineH + s.size * 0.15 };
@@ -216,6 +310,58 @@ function drawHandles(ctx: CanvasRenderingContext2D, w: number, h: number, unit: 
   ctx.stroke();
 }
 
+/** Speech bubble with a stitched inner line and a tail at the bottom left. */
+function drawBubble(ctx: CanvasRenderingContext2D, s: Sticker, w: number, h: number) {
+  const px = s.size * 0.36;
+  const m = textMetrics(s, px);
+  const bodyH = h / 1.28;
+  const top = -h / 2;
+  const left = -w / 2;
+  const r = bodyH * 0.42;
+  const halo = s.size * 0.07;
+  const tail = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(left + w * 0.14, top + bodyH - r * 0.3);
+    ctx.lineTo(left + w * 0.1, top + h);
+    ctx.lineTo(left + w * 0.34, top + bodyH - r * 0.3);
+    ctx.closePath();
+  };
+  const body = (): void => {
+    ctx.beginPath();
+    ctx.roundRect(left, top, w, bodyH, r);
+  };
+  ctx.lineJoin = "round";
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = s.size * 0.08;
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = halo * 2;
+  for (const draw of [body, tail]) {
+    draw();
+    ctx.stroke();
+    ctx.fill();
+  }
+  ctx.shadowColor = "transparent";
+  ctx.fillStyle = s.color ?? "#151517";
+  for (const draw of [body, tail]) {
+    draw();
+    ctx.fill();
+  }
+  const inset = s.size * 0.06;
+  ctx.beginPath();
+  ctx.roundRect(left + inset, top + inset, w - inset * 2, bodyH - inset * 2, Math.max(2, r - inset));
+  ctx.setLineDash([s.size * 0.05, s.size * 0.04]);
+  ctx.lineWidth = Math.max(1.5, s.size * 0.012);
+  ctx.strokeStyle = s.ink ?? "#ffffff";
+  ctx.globalAlpha = 0.5;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([]);
+  ctx.fillStyle = s.ink ?? "#ffffff";
+  ctx.font = stickerFontCss(s.font ?? "marker", px);
+  m.lines.forEach((line, i) => ctx.fillText(line, 0, top + bodyH / 2 + (i - (m.lines.length - 1) / 2) * m.lineH + px * 0.04));
+}
+
 export function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker, selected: boolean, unit: number) {
   const { w, h } = stickerBox(s);
   ctx.save();
@@ -228,6 +374,10 @@ export function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker, selected:
     ctx.shadowColor = "rgba(0,0,0,0.35)";
     ctx.shadowBlur = s.size * 0.08;
     ctx.fillText(s.text, 0, s.size * 0.04);
+  } else if (s.kind === "shape") {
+    drawShape(ctx, s.text, h);
+  } else if (s.kind === "bubble") {
+    drawBubble(ctx, s, w, h);
   } else if (s.kind === "text") {
     const px = s.size * 0.6;
     const m = textMetrics(s, px);
@@ -281,7 +431,7 @@ export function newSticker(def: StickerDef, width: number, height: number): Stic
     id: Math.random().toString(36).slice(2),
     x: width / 2 + (Math.random() - 0.5) * width * 0.3,
     y: height / 2 + (Math.random() - 0.5) * height * 0.3,
-    size: Math.min(width, height) * (def.kind === "text" ? 0.2 : 0.16),
+    size: Math.min(width, height) * (def.kind === "text" || def.kind === "bubble" ? 0.2 : 0.16),
     rot: (Math.random() - 0.5) * 0.4,
   };
 }
