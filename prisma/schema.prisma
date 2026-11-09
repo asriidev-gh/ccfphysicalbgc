@@ -443,6 +443,7 @@ model BoothPhoto {
   templateId String
   likeCount  Int      @default(0)
   hidden     Boolean  @default(false)
+  ownerHash  String?
   createdAt  DateTime @default(now())
 
   likes BoothLike[]

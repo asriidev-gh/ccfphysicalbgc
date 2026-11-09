@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
-import { createBoothPhoto, listBoothPhotos, toggleBoothLike, voterHash } from "@/lib/services/booth";
+import { createBoothPhoto, deleteOwnBoothPhoto, listBoothPhotos, toggleBoothLike, voterHash } from "@/lib/services/booth";
 import { AppError } from "@/lib/errors";
 
 const created: string[] = [];
@@ -51,5 +51,22 @@ describe("photobooth", () => {
     await toggleBoothLike(db, p.id, v);
     const { items } = await listBoothPhotos(db, { sort: "new", take: 200, voter: v });
     expect(items.find((i) => i.id === p.id)?.liked).toBe(true);
+  });
+
+  it("lets only the posting device delete its photo", async () => {
+    const owner = voterHash("owner-aaaaaaaaaaaaaaa");
+    const p = await createBoothPhoto(db, {
+      imageUrl: "https://res.cloudinary.com/x/image/upload/v1/own.jpg",
+      templateId: "strip",
+      ownerHash: owner,
+    });
+    created.push(p.id);
+    const { items } = await listBoothPhotos(db, { sort: "new", take: 200, voter: owner });
+    expect(items.find((i) => i.id === p.id)?.mine).toBe(true);
+    const other = await listBoothPhotos(db, { sort: "new", take: 200, voter: voterHash("other-bbbbbbbbbbbbbbb") });
+    expect(other.items.find((i) => i.id === p.id)?.mine).toBe(false);
+    await expect(deleteOwnBoothPhoto(db, p.id, voterHash("other-bbbbbbbbbbbbbbb"))).rejects.toBeInstanceOf(AppError);
+    await deleteOwnBoothPhoto(db, p.id, owner);
+    expect(await db.boothPhoto.count({ where: { id: p.id } })).toBe(0);
   });
 });

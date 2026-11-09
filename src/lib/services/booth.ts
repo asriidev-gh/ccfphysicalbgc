@@ -17,9 +17,9 @@ export function voterHash(voterId: string): string {
     .digest("hex");
 }
 
-export async function createBoothPhoto(db: Db, input: { imageUrl: string; templateId: string }) {
+export async function createBoothPhoto(db: Db, input: { imageUrl: string; templateId: string; ownerHash?: string }) {
   if (!BOOTH_TEMPLATE_IDS.includes(input.templateId)) throw new AppError("VALIDATION", "Unknown template.");
-  return db.boothPhoto.create({ data: { imageUrl: input.imageUrl, templateId: input.templateId } });
+  return db.boothPhoto.create({ data: { imageUrl: input.imageUrl, templateId: input.templateId, ownerHash: input.ownerHash } });
 }
 
 export interface BoothItem {
@@ -28,6 +28,8 @@ export interface BoothItem {
   templateId: string;
   likeCount: number;
   liked: boolean;
+  /** Posted from this device, so the viewer may delete it. */
+  mine: boolean;
   createdAt: Date;
 }
 
@@ -55,6 +57,7 @@ export async function listBoothPhotos(db: Db, opts: { sort: BoothSort; take: num
     templateId: p.templateId,
     likeCount: p.likeCount,
     liked: liked.has(p.id),
+    mine: opts.voter !== null && p.ownerHash === opts.voter,
     createdAt: p.createdAt,
   }));
   return { items, hasMore: rows.length > take };
@@ -95,4 +98,10 @@ export async function deleteBoothPhoto(db: Db, actor: Actor, id: string) {
     entityId: id,
     previous: { imageUrl: p.imageUrl },
   });
+}
+
+/** A visitor deleting a photo they posted from this device. */
+export async function deleteOwnBoothPhoto(db: Db, id: string, voter: string) {
+  const r = await db.boothPhoto.deleteMany({ where: { id, ownerHash: voter } });
+  if (r.count === 0) throw new AppError("NOT_FOUND", "You can only delete photos you posted from this device.");
 }

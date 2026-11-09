@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Download, FlipHorizontal, ImagePlus, Loader2, Minus, Plus, RefreshCw, RotateCw, Share2, Trash2 } from "lucide-react";
+import { Camera, Check, FlipHorizontal, ImagePlus, Loader2, Minus, Plus, RefreshCw, RotateCw, Share2, Trash2, Upload } from "lucide-react";
 import { Button, buttonVariants, Input } from "@/components/ui";
 import { BOOTH_TEMPLATES, type BoothTemplate } from "@/lib/booth/templates";
 import { renderTemplate, toJpeg, whenLogoReady, type Shot } from "@/lib/booth/render";
@@ -18,14 +18,56 @@ import {
   type StickerFont,
   type StickerGroup,
 } from "@/lib/booth/stickers";
-import { boothDownload, boothThumb } from "@/lib/photo-url";
 import { cn } from "@/lib/utils";
 
 const MAX_BYTES = 2_900_000;
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-type Phase = "pick" | "shoot" | "review" | "done";
+type Phase = "pick" | "shoot" | "review";
 type Cam = "starting" | "ready" | "error";
+
+const STEPS = ["Template", "Shots", "Publish"] as const;
+const STEP_OF: Record<Phase, number> = { pick: 1, shoot: 2, review: 3 };
+
+/** Three-step progress header. On phones only the current step shows its label, so it never wraps. */
+function Stepper({ phase }: { phase: Phase }) {
+  const step = STEP_OF[phase];
+  return (
+    <ol aria-label="Photobooth progress" className="mb-5 flex items-center">
+      {STEPS.map((label, i) => {
+        const n = i + 1;
+        const state = n < step ? "done" : n === step ? "current" : "todo";
+        return (
+          <li
+            key={label}
+            aria-current={state === "current" ? "step" : undefined}
+            className={cn("flex items-center", n < STEPS.length && "flex-1")}
+          >
+            <span
+              className={cn(
+                "grid size-8 shrink-0 place-items-center rounded-full text-sm font-bold",
+                state === "done" && "bg-ok text-black",
+                state === "current" && "bg-brand text-white",
+                state === "todo" && "border-line text-muted border-2",
+              )}
+            >
+              {state === "done" ? <Check className="size-4" aria-hidden /> : n}
+            </span>
+            <span className={cn("ml-2 text-sm font-semibold", state === "current" ? "text-fg" : "text-muted max-sm:sr-only")}>
+              {label}
+              <span className="sr-only">{state === "done" ? " (done)" : state === "current" ? " (current step)" : ""}</span>
+            </span>
+            {n < STEPS.length && <span aria-hidden className={cn("mx-3 h-0.5 flex-1 rounded-full", n < step ? "bg-ok" : "bg-line")} />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Primary actions stay pinned to the bottom of the screen so the thumb never has to hunt for them. */
+const ACTION_BAR =
+  "border-line bg-bg/95 sticky bottom-0 z-10 -mx-4 mt-4 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur";
 
 function TemplatePreview({ t }: { t: BoothTemplate }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -61,7 +103,7 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [busy, setBusy] = useState<"post" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [posted, setPosted] = useState<{ url: string } | null>(null);
+  const router = useRouter();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -149,7 +191,6 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
     setShots(Array(t.slots.length).fill(null));
     setStickers([]);
     setSelectedId(null);
-    setPosted(null);
     beginShoot(
       t,
       t.slots.map((_, i) => i),
@@ -262,6 +303,7 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
   async function post() {
     if (!template) return;
     setBusy("post");
+    let redirecting = false;
     setError(null);
     try {
       const blob = await makeBlob();
@@ -276,12 +318,13 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
         setError(json?.error ?? "Could not post your photo. Please try again.");
         return;
       }
-      setPosted({ url: json.url });
-      setPhase("done");
+      redirecting = true;
+      stopCamera();
+      router.push("/booth?sort=new&posted=1");
     } catch {
       setError("Network error. Please check your connection and try again.");
     } finally {
-      setBusy(null);
+      if (!redirecting) setBusy(null);
     }
   }
 
@@ -391,14 +434,15 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
     setPhase("pick");
     setTemplate(null);
     setShots([]);
-    setPosted(null);
     setError(null);
   }
 
   if (phase === "pick" || !template) {
     return (
       <div>
-        <p className="text-muted mb-4 text-sm">Pick a layout. You will get a 3-2-1 countdown before every shot.</p>
+        <Stepper phase="pick" />
+        <h2 className="font-display text-2xl font-bold">Choose a template</h2>
+        <p className="text-muted mt-1 mb-5 text-sm">Tap a layout to start. You get a 3-2-1 countdown before every shot.</p>
         {[
           { title: "Sports party layouts", list: BOOTH_TEMPLATES.filter((t) => t.scene) },
           { title: "Sports prop frames", list: BOOTH_TEMPLATES.filter((t) => t.prop) },
@@ -442,6 +486,7 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
   if (phase === "shoot") {
     return (
       <div className="mx-auto max-w-md">
+        <Stepper phase="shoot" />
         <p className="font-display mb-2 text-center text-xl font-bold" aria-live="polite">
           Shot {current + 1} of {total}
         </p>
@@ -504,7 +549,7 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
           ))}
         </div>
         {cam !== "error" && (
-          <div className="mt-4 flex gap-2">
+          <div className={cn(ACTION_BAR, "flex gap-2")}>
             <Button size="lg" className="flex-1" disabled={running || cam !== "ready"} onClick={() => void run()}>
               <Camera className="size-5" aria-hidden />
               {running ? "Pose!" : queue.length > 1 ? `Start ${queue.length} shots` : "Take photo"}
@@ -524,6 +569,7 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
   if (phase === "review") {
     return (
       <div className="mx-auto max-w-md">
+        <Stepper phase="review" />
         <canvas
           ref={previewRef}
           className={cn("mx-auto max-h-[65vh] w-auto max-w-full rounded-md", stickers.length > 0 && "touch-none")}
@@ -649,14 +695,13 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
             {error}
           </p>
         )}
-        <div className="mt-4 space-y-2">
-          <Button size="lg" className="w-full" disabled={busy !== null} onClick={() => void post()}>
-            {busy === "post" ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <ImagePlus className="size-5" aria-hidden />}
-            Post to the gallery
+        <div className={cn(ACTION_BAR, "flex gap-2")}>
+          <Button size="lg" className="flex-1" disabled={busy !== null} onClick={() => void post()}>
+            {busy === "post" ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Upload className="size-5" aria-hidden />}
+            {busy === "post" ? "Publishing…" : "Publish to gallery"}
           </Button>
-          <Button variant="secondary" className="w-full" disabled={busy !== null} onClick={() => void save()}>
-            {busy === "save" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Share2 className="size-4" aria-hidden />}
-            Save to my phone
+          <Button size="lg" variant="secondary" aria-label="Save to my phone" disabled={busy !== null} onClick={() => void save()}>
+            {busy === "save" ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Share2 className="size-5" aria-hidden />}
           </Button>
         </div>
         <p className="text-muted mt-4 text-center text-xs">Not happy with a shot?</p>
@@ -688,31 +733,4 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
       </div>
     );
   }
-
-  return (
-    <div className="mx-auto max-w-md text-center">
-      <p className="font-display text-brand text-2xl font-bold">You are in the gallery!</p>
-      {posted && (
-        // eslint-disable-next-line @next/next/no-img-element -- Cloudinary already serves an optimised size
-        <img
-          src={boothThumb(posted.url, 900)}
-          alt="Your posted photobooth photo"
-          className="mx-auto mt-4 max-h-[60vh] w-auto max-w-full rounded-md"
-        />
-      )}
-      <div className="mt-4 space-y-2">
-        {posted && (
-          <a href={boothDownload(posted.url)} className={cn(buttonVariants({ size: "lg" }), "w-full")}>
-            <Download className="size-5" aria-hidden /> Download
-          </a>
-        )}
-        <Link href="/booth/gallery" className={cn(buttonVariants({ variant: "secondary" }), "w-full")}>
-          See the gallery
-        </Link>
-        <Button variant="ghost" className="w-full" onClick={reset}>
-          Take another one
-        </Button>
-      </div>
-    </div>
-  );
 }

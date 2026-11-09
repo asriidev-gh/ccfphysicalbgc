@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { BOOTH_TEMPLATE_IDS } from "@/lib/booth/templates";
 import { AppError } from "@/lib/errors";
-import { BOOTH_MAX_BYTES, createBoothPhoto } from "@/lib/services/booth";
+import { ensureVoterId } from "@/lib/booth/voter";
+import { BOOTH_MAX_BYTES, createBoothPhoto, voterHash } from "@/lib/services/booth";
 import { rateLimit } from "@/lib/services/ratelimit";
 import { uploadPhoto } from "@/lib/services/photo";
 
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
     // Validate the template before spending a Cloudinary upload.
     if (!BOOTH_TEMPLATE_IDS.includes(templateId)) throw new AppError("VALIDATION", "Unknown template.");
     const imageUrl = await uploadPhoto(dataUrl, { folder: "physical-bgc/booth", maxBytes: BOOTH_MAX_BYTES });
-    const photo = await createBoothPhoto(db, { imageUrl, templateId });
+    const photo = await createBoothPhoto(db, { imageUrl, templateId, ownerHash: voterHash(await ensureVoterId()) });
     return NextResponse.json({ ok: true, id: photo.id, url: photo.imageUrl });
   } catch (e) {
     if (e instanceof AppError) {
