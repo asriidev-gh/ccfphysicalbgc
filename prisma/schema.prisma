@@ -461,3 +461,39 @@ model BoothLike {
 
   @@id([photoId, voterHash])
 }
+
+enum PrayerReactionKind {
+  PRAY
+  REPORT
+}
+
+/// A public, optionally anonymous prayer request shown as a sticky note on the prayer wall.
+/// Counts are denormalised from PrayerReaction (one row per anonymous device and kind).
+model PrayerRequest {
+  id          String    @id @default(uuid()) @db.Uuid
+  body        String
+  authorName  String?
+  category    String    @default("other")
+  color       String    @default("yellow")
+  ownerHash   String
+  prayCount   Int       @default(0)
+  reportCount Int       @default(0)
+  hidden      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  reactions PrayerReaction[]
+
+  @@index([hidden, createdAt])
+}
+
+/// One "I prayed" / report per anonymous device (voterHash = hash of a random cookie id).
+model PrayerReaction {
+  requestId String             @db.Uuid
+  voterHash String
+  kind      PrayerReactionKind
+  createdAt DateTime           @default(now())
+
+  request PrayerRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@id([requestId, voterHash, kind])
+}

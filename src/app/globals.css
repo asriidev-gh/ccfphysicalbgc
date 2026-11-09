@@ -335,3 +335,66 @@ body {
     display: none;
   }
 }
+
+/* ---------- Prayer wall sticky notes ---------- */
+
+/* Notes live in grid cells, so a tilt can never push one over its neighbour. --paper/--edge/--tilt are set per note. */
+.sticky-note {
+  position: relative;
+  border-radius: 2px 2px 16px 2px;
+  background: linear-gradient(168deg, var(--paper) 0%, var(--paper) 72%, var(--edge) 100%);
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.3),
+    0 10px 16px -8px rgba(0, 0, 0, 0.65);
+  transform: rotate(var(--tilt, 0deg));
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.sticky-note:hover,
+.sticky-note:focus-within {
+  transform: rotate(0deg) translateY(-3px);
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.3),
+    0 16px 22px -8px rgba(0, 0, 0, 0.75);
+}
+/* A strip of tape holding the note to the wall. */
+.sticky-note::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 68px;
+  height: 22px;
+  transform: translateX(-50%) rotate(-2deg);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.sticky-note :focus-visible {
+  outline-color: currentColor;
+}
+@keyframes note-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) rotate(var(--tilt, 0deg)) scale(0.97);
+  }
+}
+.note-in {
+  animation: note-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes note-fresh {
+  0%,
+  100% {
+    outline-color: transparent;
+  }
+  30% {
+    outline-color: var(--accent);
+  }
+}
+.note-fresh {
+  outline: 3px solid transparent;
+  outline-offset: 4px;
+  animation:
+    note-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both,
+    note-fresh 2.4s ease-out 0.4s 2;
+}

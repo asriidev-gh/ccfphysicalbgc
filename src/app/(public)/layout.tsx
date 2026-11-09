@@ -8,6 +8,7 @@ const nav = [
   { href: "/register", label: "Register" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/booth", label: "Photobooth" },
+  { href: "/prayer", label: "Prayer wall" },
   { href: "/find", label: "My registration" },
 ];
 
