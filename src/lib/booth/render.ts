@@ -1,7 +1,9 @@
-import { drawSticker, loadStickerFonts, type Sticker } from "./stickers";
+import { drawSticker, loadStickerFonts, stickerUnit, type Sticker } from "./stickers";
 import { drawCard } from "./render-card";
 import { drawEvent } from "./render-event";
 import { drawOverlay } from "./render-overlay";
+import { drawProps } from "./render-props";
+import { drawScene } from "./render-scene";
 import { drawPoster } from "./render-poster";
 import { drawSport } from "./render-sport";
 import { drawTrading } from "./render-trading";
@@ -78,6 +80,16 @@ export function renderTemplate(
   }
   if (t.event) {
     drawEvent<Shot>(ctx, t, shots, { drawCover, drawLogo }, opts.text ?? {});
+    drawStickers(ctx, t.width, opts);
+    return;
+  }
+  if (t.scene) {
+    drawScene<Shot>(ctx, t, shots, { drawCover, drawLogo }, opts.text ?? {});
+    drawStickers(ctx, t.width, opts);
+    return;
+  }
+  if (t.prop) {
+    drawProps<Shot>(ctx, t, shots, { drawCover, drawLogo }, opts.text ?? {});
     drawStickers(ctx, t.width, opts);
     return;
   }
@@ -196,7 +208,7 @@ export function renderTemplate(
 }
 
 function drawStickers(ctx: CanvasRenderingContext2D, width: number, opts: { stickers?: Sticker[]; selectedId?: string | null }) {
-  const unit = Math.max(2, width * 0.003);
+  const unit = stickerUnit(width);
   for (const s of opts.stickers ?? []) drawSticker(ctx, s, s.id === opts.selectedId, unit);
 }
 

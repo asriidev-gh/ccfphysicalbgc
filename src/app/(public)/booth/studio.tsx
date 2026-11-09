@@ -7,10 +7,12 @@ import { Button, buttonVariants, Input } from "@/components/ui";
 import { BOOTH_TEMPLATES, type BoothTemplate } from "@/lib/booth/templates";
 import { renderTemplate, toJpeg, whenLogoReady, type Shot } from "@/lib/booth/render";
 import {
+  hitHandle,
   hitSticker,
   newSticker,
   registerStickerFonts,
   STICKER_CATALOG,
+  stickerUnit,
   type Sticker,
   type StickerDef,
   type StickerFont,
@@ -69,7 +71,11 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<
-    { kind: "drag"; dx: number; dy: number } | { kind: "pinch"; dist: number; angle: number; size: number; rot: number } | null
+    | { kind: "drag"; dx: number; dy: number }
+    | { kind: "pinch"; dist: number; angle: number; size: number; rot: number }
+    | { kind: "rotate"; cx: number; cy: number; angle: number; rot: number }
+    | { kind: "resize"; cx: number; cy: number; dist: number; size: number }
+    | null
   >(null);
 
   const stopCamera = useCallback(() => {
@@ -313,6 +319,35 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
       return;
     }
     if (pointers.current.size !== 1) return;
+    if (selected && template) {
+      const handle = hitHandle(selected, p.x, p.y, stickerUnit(template.width));
+      if (handle === "delete") {
+        setStickers((prev) => prev.filter((s) => s.id !== selected.id));
+        setSelectedId(null);
+        pointers.current.clear();
+        return;
+      }
+      if (handle === "rotate") {
+        gesture.current = {
+          kind: "rotate",
+          cx: selected.x,
+          cy: selected.y,
+          angle: Math.atan2(p.y - selected.y, p.x - selected.x),
+          rot: selected.rot,
+        };
+        return;
+      }
+      if (handle === "resize") {
+        gesture.current = {
+          kind: "resize",
+          cx: selected.x,
+          cy: selected.y,
+          dist: Math.hypot(p.x - selected.x, p.y - selected.y) || 1,
+          size: selected.size,
+        };
+        return;
+      }
+    }
     const hit = [...stickers].reverse().find((s) => hitSticker(s, p.x, p.y));
     if (hit) {
       setSelectedId(hit.id);
@@ -335,6 +370,12 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
       patchSelected((s) => ({ ...s, size, rot: g.rot + angle - g.angle }));
     } else if (g.kind === "drag") {
       patchSelected((s) => ({ ...s, x: p.x + g.dx, y: p.y + g.dy }));
+    } else if (g.kind === "rotate") {
+      const angle = Math.atan2(p.y - g.cy, p.x - g.cx);
+      patchSelected((s) => ({ ...s, rot: g.rot + angle - g.angle }));
+    } else if (g.kind === "resize") {
+      const size = Math.min(Math.max((g.size * Math.hypot(p.x - g.cx, p.y - g.cy)) / g.dist, template.width * 0.05), template.width * 0.8);
+      patchSelected((s) => ({ ...s, size }));
     }
   }
 
@@ -359,13 +400,18 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
       <div>
         <p className="text-muted mb-4 text-sm">Pick a layout. You will get a 3-2-1 countdown before every shot.</p>
         {[
+          { title: "Sports party layouts", list: BOOTH_TEMPLATES.filter((t) => t.scene) },
+          { title: "Sports prop frames", list: BOOTH_TEMPLATES.filter((t) => t.prop) },
           { title: "Party frames", list: BOOTH_TEMPLATES.filter((t) => t.overlay) },
           { title: "Sports posters", list: BOOTH_TEMPLATES.filter((t) => t.poster) },
           { title: "Party & wedding strips", list: BOOTH_TEMPLATES.filter((t) => t.event) },
           { title: "Trading cards", list: BOOTH_TEMPLATES.filter((t) => t.card) },
           { title: "Sport cards", list: BOOTH_TEMPLATES.filter((t) => t.sport?.variant === "card") },
           { title: "Sport collages", list: BOOTH_TEMPLATES.filter((t) => t.sport && t.sport.variant !== "card") },
-          { title: "Classic layouts", list: BOOTH_TEMPLATES.filter((t) => !t.sport && !t.card && !t.poster && !t.event && !t.overlay) },
+          {
+            title: "Classic layouts",
+            list: BOOTH_TEMPLATES.filter((t) => !t.sport && !t.card && !t.poster && !t.event && !t.overlay && !t.scene && !t.prop),
+          },
         ].map((g) => (
           <section key={g.title} className="mb-6">
             <h2 className="font-display mb-2 text-xl font-bold">{g.title}</h2>
@@ -504,7 +550,10 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
           </section>
         )}
         <section aria-label="Stickers" className="mt-4">
-          <p className="text-muted mb-2 text-xs">Tap a sticker to add it. Drag to move; pinch to resize and turn.</p>
+          <p className="text-muted mb-2 text-xs">
+            Tap a sticker to add it. Drag to move. Use the corner buttons to delete (red), rotate (blue) and resize (green), or pinch with
+            two fingers.
+          </p>
           <div className="mb-2 flex gap-2" role="tablist" aria-label="Sticker packs">
             {(
               [

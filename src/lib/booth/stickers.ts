@@ -140,6 +140,82 @@ export function hitSticker(s: Sticker, px: number, py: number): boolean {
   return Math.abs(lx) <= w / 2 && Math.abs(ly) <= h / 2;
 }
 
+export type StickerHandle = "delete" | "rotate" | "resize";
+
+/** Line width and handle size scale with the canvas so they stay finger-sized when it is shown small. */
+export const stickerUnit = (canvasWidth: number) => Math.max(2, canvasWidth * 0.003);
+const handleRadius = (unit: number) => unit * 15;
+
+/** Corner handles of the selection box (template pixels): delete top-left, rotate top-right, resize bottom-right. */
+function handlePoints(s: Sticker, unit: number): Record<StickerHandle, { x: number; y: number }> {
+  const { w, h } = stickerBox(s);
+  const hw = w / 2 + unit * 2;
+  const hh = h / 2 + unit * 2;
+  const cos = Math.cos(s.rot);
+  const sin = Math.sin(s.rot);
+  const at = (lx: number, ly: number) => ({ x: s.x + lx * cos - ly * sin, y: s.y + lx * sin + ly * cos });
+  return { delete: at(-hw, -hh), rotate: at(hw, -hh), resize: at(hw, hh) };
+}
+
+export function hitHandle(s: Sticker, px: number, py: number, unit: number): StickerHandle | null {
+  const pts = handlePoints(s, unit);
+  const reach = handleRadius(unit) * 1.5;
+  for (const k of ["delete", "rotate", "resize"] as const) {
+    if (Math.hypot(px - pts[k].x, py - pts[k].y) <= reach) return k;
+  }
+  return null;
+}
+
+function drawHandles(ctx: CanvasRenderingContext2D, w: number, h: number, unit: number) {
+  const r = handleRadius(unit);
+  const hw = w / 2 + unit * 2;
+  const hh = h / 2 + unit * 2;
+  const disc = (x: number, y: number, fill: string) => {
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = unit;
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
+  };
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = unit * 1.8;
+  ctx.strokeStyle = "#ffffff";
+  const k = r * 0.42;
+
+  disc(-hw, -hh, "#e5301f");
+  ctx.beginPath();
+  ctx.moveTo(-hw - k, -hh - k);
+  ctx.lineTo(-hw + k, -hh + k);
+  ctx.moveTo(-hw + k, -hh - k);
+  ctx.lineTo(-hw - k, -hh + k);
+  ctx.stroke();
+
+  disc(hw, -hh, "#2b6bff");
+  ctx.beginPath();
+  ctx.arc(hw, -hh, k * 1.15, -Math.PI * 0.15, Math.PI * 1.3);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(hw + k * 1.15 * Math.cos(-Math.PI * 0.15) + k * 0.1, -hh + k * 1.15 * Math.sin(-Math.PI * 0.15) - k * 0.9);
+  ctx.lineTo(hw + k * 1.15 * Math.cos(-Math.PI * 0.15), -hh + k * 1.15 * Math.sin(-Math.PI * 0.15));
+  ctx.lineTo(hw + k * 1.15 * Math.cos(-Math.PI * 0.15) + k * 0.95, -hh + k * 1.15 * Math.sin(-Math.PI * 0.15) + k * 0.1);
+  ctx.stroke();
+
+  disc(hw, hh, "#1f9d55");
+  ctx.beginPath();
+  ctx.moveTo(hw - k, hh - k);
+  ctx.lineTo(hw + k, hh + k);
+  ctx.moveTo(hw + k, hh + k * 0.1);
+  ctx.lineTo(hw + k, hh + k);
+  ctx.lineTo(hw + k * 0.1, hh + k);
+  ctx.moveTo(hw - k, hh - k * 0.1);
+  ctx.lineTo(hw - k, hh - k);
+  ctx.lineTo(hw - k * 0.1, hh - k);
+  ctx.stroke();
+}
+
 export function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker, selected: boolean, unit: number) {
   const { w, h } = stickerBox(s);
   ctx.save();
@@ -190,6 +266,8 @@ export function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker, selected:
     ctx.lineWidth = unit;
     ctx.strokeStyle = "#ffffff";
     ctx.strokeRect(-w / 2 - unit * 2, -h / 2 - unit * 2, w + unit * 4, h + unit * 4);
+    ctx.setLineDash([]);
+    drawHandles(ctx, w, h, unit);
   }
   ctx.restore();
 }

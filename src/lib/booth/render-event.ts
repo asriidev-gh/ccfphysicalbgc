@@ -86,7 +86,7 @@ function bulb(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, wa
   ctx.fill();
 }
 
-function slotPhoto<S>(ctx: CanvasRenderingContext2D, slot: BoothSlot, shot: S | null | undefined, i: number, h: SportHelpers<S>) {
+export function slotPhoto<S>(ctx: CanvasRenderingContext2D, slot: BoothSlot, shot: S | null | undefined, i: number, h: SportHelpers<S>) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(slot.x, slot.y, slot.w, slot.h);

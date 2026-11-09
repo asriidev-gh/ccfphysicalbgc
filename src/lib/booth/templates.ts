@@ -25,10 +25,19 @@ export interface BoothTemplate {
   event?: EventStyle;
   /** Vertical-name sports poster. */
   poster?: PosterStyle;
+  /** Themed multi-photo scene (basketball, soccer, airmail...). */
+  scene?: SceneStyle;
+  /** Cardboard-prop style frame (touchdown, all-stars...). */
+  prop?: { style: "touchdown" | "allstars" | "borntowin" };
   /** Single-photo party frame (balloons, neon, glitter...). */
   overlay?: { style: "gold-double" | "gold-swoosh" | "plaque" | "badge" | "floral" | "neon-purple" | "neon-glow" };
   /** Text the visitor can type in on the review screen. Placeholders double as the defaults. */
   fields?: BoothField[];
+}
+
+export interface SceneStyle {
+  style: "hoops" | "soccer" | "ink" | "court" | "grass" | "bigame" | "airmail";
+  textBox?: BoothSlot;
 }
 
 export interface BoothField {
@@ -528,6 +537,202 @@ export const OVERLAY_TEMPLATES: BoothTemplate[] = [
   ),
 ];
 
+function sceneTemplate(
+  id: string,
+  name: string,
+  width: number,
+  height: number,
+  slots: BoothSlot[],
+  scene: SceneStyle,
+  fields: BoothField[],
+  accent: string,
+): BoothTemplate {
+  return {
+    id,
+    name,
+    blurb: `${slots.length} shot${slots.length > 1 ? "s" : ""} + your text`,
+    width,
+    height,
+    slots,
+    theme: { from: "#0c0c0e", to: "#1d1d20", accent, ink: "#ffffff" },
+    scene,
+    fields,
+  };
+}
+
+const f = (key: string, label: string, placeholder: string, max: number): BoothField => ({ key, label, placeholder, max });
+const INK_FIELDS = [
+  f("name", "Big name", "CCF BGC", 12),
+  f("sub", "Under line", "2ND ANNIVERSARY", 20),
+  f("date", "Date or note", "PHYSICAL BGC 2026", 24),
+];
+
+export const SCENE_TEMPLATES: BoothTemplate[] = [
+  sceneTemplate(
+    "scene-hoops",
+    "Game time card",
+    1800,
+    1350,
+    [{ x: 100, y: 90, w: 1600, h: 880 }],
+    { style: "hoops" },
+    [
+      f("kicker", "Small line", "IT'S GAME TIME!", 22),
+      f("title", "Big title", "PHYSICAL BGC", 18),
+      f("date", "Date or note", "2ND YEAR ANNIVERSARY", 26),
+    ],
+    "#f07a1a",
+  ),
+  sceneTemplate(
+    "scene-soccer",
+    "Checkered soccer 4-up",
+    1800,
+    1200,
+    [
+      { x: 60, y: 60, w: 620, h: 460 },
+      { x: 720, y: 60, w: 1020, h: 460 },
+      { x: 720, y: 600, w: 490, h: 540 },
+      { x: 1250, y: 600, w: 490, h: 540 },
+    ],
+    { style: "soccer" },
+    [
+      f("top", "Script line", "Thank you for coming", 24),
+      f("name", "Big name", "CCF BGC", 12),
+      f("sub", "Under line", "2nd Anniversary", 20),
+      f("date", "Date", "PHYSICAL BGC 2026", 24),
+    ],
+    "#4c9a2c",
+  ),
+  sceneTemplate(
+    "scene-ink-4up",
+    "Ink splat 4-up",
+    1800,
+    1200,
+    [
+      { x: 60, y: 60, w: 820, h: 520 },
+      { x: 920, y: 60, w: 820, h: 520 },
+      { x: 60, y: 620, w: 820, h: 520 },
+    ],
+    { style: "ink", textBox: { x: 920, y: 620, w: 820, h: 520 } },
+    INK_FIELDS,
+    "#f07a1a",
+  ),
+  sceneTemplate(
+    "scene-ink-strip",
+    "Ink splat strip",
+    700,
+    2100,
+    [60, 560, 1060].map((y) => ({ x: 60, y, w: 580, h: 440 })),
+    {
+      style: "ink",
+      textBox: { x: 0, y: 1520, w: 700, h: 580 },
+    },
+    INK_FIELDS,
+    "#f07a1a",
+  ),
+  sceneTemplate(
+    "scene-court",
+    "Basketball court 4-up",
+    1800,
+    1200,
+    [
+      { x: 60, y: 60, w: 1040, h: 650 },
+      { x: 60, y: 760, w: 540, h: 380 },
+      { x: 630, y: 760, w: 540, h: 380 },
+      { x: 1200, y: 760, w: 540, h: 380 },
+    ],
+    { style: "court" },
+    [
+      f("kicker", "Small line", "PHYSICAL BGC 2026", 22),
+      f("big1", "Big word 1", "BASKETBALL", 12),
+      f("big2", "Big word 2", "MADNESS", 10),
+      f("script", "Script line", "Celebration", 16),
+    ],
+    "#f07a1a",
+  ),
+  sceneTemplate(
+    "scene-grass",
+    "Grass strip",
+    700,
+    2100,
+    [620, 1100, 1580].map((y) => ({ x: 60, y, w: 580, h: 440 })),
+    { style: "grass" },
+    [f("l1", "Line 1", "CCF BGC", 12), f("l2", "Line 2", "HAPPY", 12), f("l3", "Line 3", "ANNIVERSARY", 14)],
+    "#1fa04a",
+  ),
+  sceneTemplate(
+    "scene-bigame",
+    "Big game 4-up",
+    1800,
+    1200,
+    [
+      { x: 60, y: 60, w: 1100, h: 700 },
+      { x: 1200, y: 60, w: 540, h: 320 },
+      { x: 1200, y: 440, w: 540, h: 320 },
+      { x: 1200, y: 820, w: 540, h: 320 },
+    ],
+    { style: "bigame" },
+    [
+      f("top", "Small line", "THE BIG GAME", 20),
+      f("big", "Big title", "PHYSICAL BGC", 16),
+      f("sub", "Under line", "CCF BGC SPORTS", 24),
+      f("date", "Date", "NOVEMBER 2026", 22),
+    ],
+    "#c4220f",
+  ),
+  sceneTemplate(
+    "scene-airmail",
+    "Airmail 3-across",
+    1800,
+    1200,
+    [110, 646, 1182].map((x) => ({ x, y: 100, w: 506, h: 700 })),
+    { style: "airmail" },
+    [f("big", "Big names", "CCF BGC SPORTS", 22), f("script", "Script line", "2nd anniversary", 26), f("date", "Date", "2026", 12)],
+    "#c4332f",
+  ),
+];
+
+export const PROP_TEMPLATES: BoothTemplate[] = [
+  {
+    id: "prop-touchdown",
+    name: "Touchdown frame",
+    blurb: "1 shot + your text",
+    width: 1080,
+    height: 1080,
+    slots: [{ x: 0, y: 0, w: 1080, h: 1080 }],
+    theme: { from: "#1f7a2a", to: "#0e4a16", accent: "#ffd23f", ink: "#ffffff" },
+    prop: { style: "touchdown" },
+    fields: [f("title", "Title", "TOUCHDOWN", 12)],
+  },
+  {
+    id: "prop-allstars",
+    name: "All-stars frame",
+    blurb: "1 shot + your text",
+    width: 1080,
+    height: 1080,
+    slots: [{ x: 0, y: 0, w: 1080, h: 1080 }],
+    theme: { from: "#f7f7f3", to: "#dcdcd6", accent: "#e3263a", ink: "#111111" },
+    prop: { style: "allstars" },
+    fields: [f("word1", "Word down the side", "ALL", 5), f("word2", "Word along the bottom", "STARS", 8)],
+  },
+  {
+    id: "prop-born-to-win",
+    name: "Born to win frame",
+    blurb: "1 shot + your text",
+    width: 1080,
+    height: 1080,
+    slots: [{ x: 0, y: 0, w: 1080, h: 1080 }],
+    theme: { from: "#121212", to: "#26262a", accent: "#f6e83a", ink: "#ffffff" },
+    prop: { style: "borntowin" },
+    fields: [
+      f("l1", "Lettering line 1", "BORN", 8),
+      f("l2", "Lettering line 2", "TO", 8),
+      f("l3", "Lettering line 3", "WIN", 8),
+      f("plate", "Trophy name plate", "BGC", 8),
+      f("bottom", "Bottom label", "Game On", 12),
+    ],
+  },
+];
+
 const POSTER_FIELDS: BoothField[] = [
   { key: "first", label: "First name", placeholder: "Jordan", max: 14 },
   { key: "last", label: "Last name", placeholder: "SMITH", max: 14 },
@@ -745,6 +950,8 @@ export const BOOTH_TEMPLATES: BoothTemplate[] = [
 ];
 
 BOOTH_TEMPLATES.push(
+  ...SCENE_TEMPLATES,
+  ...PROP_TEMPLATES,
   ...OVERLAY_TEMPLATES,
   ...POSTER_TEMPLATES,
   ...EVENT_TEMPLATES,
