@@ -118,7 +118,11 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
     name: r.participant.fullName,
     code: r.participant.registrations[0]?.code ?? "",
     photoUrl: r.participant.photoUrl,
-    queue: r.queueStatus,
+    // A stale IN_PROGRESS (no running or finished attempt behind it) is really just waiting; lets staff start again.
+    queue:
+      r.queueStatus === "IN_PROGRESS" && !r.attempts.some((t) => t.status === "RUNNING" || t.status === "FINISHED")
+        ? "WAITING"
+        : r.queueStatus,
     participantStatus: r.participant.status,
     attempts: r.attempts.map((t) => {
       const res = t.results[0];

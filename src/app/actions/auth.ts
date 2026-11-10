@@ -30,7 +30,7 @@ export async function loginAction(fd: FormData) {
     await audit(db, { actorId: actor.id, action: "auth.login", entityType: "User", entityId: actor.id });
     return homeFor(actor.role);
   });
-  if (r.ok) redirect(r.data);
+  // Return the destination (the client navigates) instead of redirect(), which made the form flash an error.
   return r;
 }
 

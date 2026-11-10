@@ -67,7 +67,9 @@ export function ActionForm({
             setMsg(success ? { ok: true, text: success } : null);
             if (reset) ref.current?.reset();
             onDone?.(r.data);
-            router.refresh();
+            const to = (r.data as { redirectTo?: unknown } | null)?.redirectTo;
+            if (typeof to === "string") router.push(to);
+            else router.refresh();
           } else setMsg({ ok: false, text: r.error, fields: r.fieldErrors });
         });
       }}

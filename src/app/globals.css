@@ -45,6 +45,21 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+/* Tailwind v4 resets buttons to the default cursor; show the pointer on everything clickable. */
+a[href],
+button:not(:disabled),
+summary,
+select:not(:disabled),
+label:has(input[type="checkbox"]),
+label:has(input[type="radio"]),
+[role="button"],
+input[type="checkbox"],
+input[type="radio"] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
 /* Subtle poster-like glow behind public pages. */
 .hero-glow {
   background:

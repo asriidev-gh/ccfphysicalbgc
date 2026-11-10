@@ -18,20 +18,6 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
   const setParams = (patch: Partial<ScoringConfig["params"]>) => setCfg((c) => ({ ...c, params: { ...c.params, ...patch } }));
   const setField = (i: number, patch: Partial<ScoringField>) =>
     set({ fields: cfg.fields.map((f, j) => (j === i ? { ...f, ...patch } : f)) });
-  const metrics = [
-    "elapsedMs",
-    "adjustedMs",
-    "netPoints",
-    "accuracyPct",
-    "totalReps",
-    "netDistance",
-    "totalMs",
-    "matchPoints",
-    "diff",
-    "pointsFor",
-    "score",
-    ...cfg.fields.map((f) => f.key),
-  ];
   const dis = Boolean(locked);
 
   return (
@@ -39,7 +25,7 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
       <input type="hidden" name={name} value={JSON.stringify(parsed.success ? parsed.data : cfg)} />
       {locked && (
         <p className="border-warn/40 bg-warn/10 text-warn rounded-md border p-3 text-sm">
-          Scoring rules are locked because attempts already exist. Use result corrections to fix individual scores.
+          Scoring rules are locked because results are already recorded. Use result corrections to fix individual scores.
         </p>
       )}
 
@@ -137,38 +123,7 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
       </fieldset>
 
       <fieldset disabled={dis} className="grid gap-3 sm:grid-cols-2">
-        <legend className="mb-2 text-sm font-semibold">Penalties &amp; template options</legend>
-        <Labeled label="Penalty field">
-          <Select value={cfg.params.penaltyField ?? ""} onChange={(e) => setParams({ penaltyField: e.target.value || undefined })}>
-            <option value="">None</option>
-            {cfg.fields.map((f) => (
-              <option key={f.key} value={f.key}>
-                {f.label}
-              </option>
-            ))}
-          </Select>
-        </Labeled>
-        {["TIME", "MULTI_STATION"].includes(cfg.template) ? (
-          <Labeled label="Seconds added per penalty">
-            <Input
-              type="number"
-              min={0}
-              step="0.5"
-              value={(cfg.params.penaltyMs ?? 0) / 1000}
-              onChange={(e) => setParams({ penaltyMs: Math.round(Number(e.target.value) * 1000) })}
-            />
-          </Labeled>
-        ) : cfg.template !== "MATCH" ? (
-          <Labeled label="Points removed per penalty">
-            <Input
-              type="number"
-              min={0}
-              step="any"
-              value={cfg.params.penaltyPoints ?? 0}
-              onChange={(e) => setParams({ penaltyPoints: Number(e.target.value) })}
-            />
-          </Labeled>
-        ) : null}
+        <legend className="mb-2 text-sm font-semibold">Template options</legend>
         {cfg.template === "REPS" && (
           <Labeled label="Reps per full round">
             <Input
@@ -246,89 +201,6 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
         )}
         <Labeled label="Display unit (use “time” for durations)">
           <Input value={cfg.unit ?? ""} maxLength={16} onChange={(e) => set({ unit: e.target.value || undefined })} />
-        </Labeled>
-      </fieldset>
-
-      <fieldset disabled={dis} className="space-y-2">
-        <legend className="mb-2 text-sm font-semibold">Tie-breakers (in order)</legend>
-        {cfg.tieBreakers.map((t, i) => (
-          <div key={i} className="flex gap-2">
-            <Select
-              aria-label="Metric"
-              value={t.metric}
-              onChange={(e) => set({ tieBreakers: cfg.tieBreakers.map((x, j) => (j === i ? { ...x, metric: e.target.value } : x)) })}
-            >
-              {[...new Set([t.metric, ...metrics])].map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </Select>
-            <Select
-              aria-label="Direction"
-              value={t.direction}
-              onChange={(e) =>
-                set({ tieBreakers: cfg.tieBreakers.map((x, j) => (j === i ? { ...x, direction: e.target.value as "asc" | "desc" } : x)) })
-              }
-            >
-              <option value="asc">Lower wins</option>
-              <option value="desc">Higher wins</option>
-            </Select>
-            <Button
-              type="button"
-              variant="ghost"
-              aria-label="Remove tie-breaker"
-              onClick={() => set({ tieBreakers: cfg.tieBreakers.filter((_, j) => j !== i) })}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </div>
-        ))}
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => set({ tieBreakers: [...cfg.tieBreakers, { metric: metrics[0], direction: "asc" }] })}
-        >
-          <Plus className="size-4" /> Add tie-breaker
-        </Button>
-      </fieldset>
-
-      <fieldset disabled={dis} className="grid gap-3 sm:grid-cols-2">
-        <legend className="mb-2 text-sm font-semibold">Attempts &amp; edge cases</legend>
-        <Labeled label="Attempts per participant">
-          <Input
-            type="number"
-            min={1}
-            max={20}
-            value={cfg.attemptPolicy.maxAttempts}
-            onChange={(e) => set({ attemptPolicy: { ...cfg.attemptPolicy, maxAttempts: Number(e.target.value) } })}
-          />
-        </Labeled>
-        <Labeled label="Which attempt counts">
-          <Select
-            value={cfg.attemptPolicy.select}
-            onChange={(e) => set({ attemptPolicy: { ...cfg.attemptPolicy, select: e.target.value as "BEST" | "LATEST" | "FIRST" } })}
-          >
-            <option value="BEST">Best</option>
-            <option value="LATEST">Latest</option>
-            <option value="FIRST">First</option>
-          </Select>
-        </Labeled>
-        <Labeled label="Incomplete attempts">
-          <Select value={cfg.incomplete} onChange={(e) => set({ incomplete: e.target.value as "EXCLUDE" | "LIST_UNRANKED" })}>
-            <option value="LIST_UNRANKED">Listed, unranked</option>
-            <option value="EXCLUDE">Hidden</option>
-          </Select>
-        </Labeled>
-        <Labeled label="Disqualified">
-          <Select value={cfg.disqualified} onChange={(e) => set({ disqualified: e.target.value as "EXCLUDE" | "LIST_UNRANKED" })}>
-            <option value="LIST_UNRANKED">Listed as DQ</option>
-            <option value="EXCLUDE">Hidden</option>
-          </Select>
-        </Labeled>
-        <Labeled label="Equal scores">
-          <Select value={cfg.ties} onChange={(e) => set({ ties: e.target.value as "SHARE_RANK" | "EARLIEST_SUBMISSION" })}>
-            <option value="SHARE_RANK">Share the rank</option>
-            <option value="EARLIEST_SUBMISSION">Earlier submission ranks higher</option>
-          </Select>
         </Labeled>
       </fieldset>
 

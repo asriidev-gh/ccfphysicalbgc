@@ -33,7 +33,12 @@ export const SUGGESTED_LEADS: Record<string, string> = {
 
 const SPORTS = [
   { slug: "badminton", name: "Badminton", icon: "feather", description: "Singles and doubles matches." },
-  { slug: "basketball", name: "Basketball", icon: "dribbble", description: "Shooting challenge." },
+  {
+    slug: "basketball", name: "Basketball",
+    icon: "dribbble",
+    description:
+      "Dribble through the obstacles, then pass and receive the ball. Next, lay up until you make it, then shoot from the free-throw line until you make it. The fastest finishing time wins.",
+  },
   { slug: "running", name: "Running", icon: "footprints", description: "Timed sprint." },
   { slug: "pickleball", name: "Pickleball", icon: "circle-dot", description: "Match play." },
   { slug: "hyrox", name: "HYROX", icon: "dumbbell", description: "Multi-station fitness race." },

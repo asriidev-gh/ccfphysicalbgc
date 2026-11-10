@@ -124,7 +124,13 @@ export async function startAttempt(db: Db, actor: Actor, input: { activityRegist
       if (ar.status !== "CONFIRMED") throw new AppError("CONFLICT", "Participant is not confirmed for this activity.");
       if (ar.participant.status !== "ACTIVE") throw new AppError("CONFLICT", "Participant is not eligible to compete.");
       if (ar.queueStatus === "NOT_ARRIVED") throw new AppError("CONFLICT", "Check the participant in first.");
-      if (ar.queueStatus === "IN_PROGRESS") throw new AppError("CONFLICT", "A challenge is already running for this participant.");
+      if (ar.queueStatus === "IN_PROGRESS") {
+        // Only block when something is really running; an orphaned IN_PROGRESS flag must not lock the participant out.
+        const live = await tx.challengeAttempt.count({
+          where: { activityRegistrationId: ar.id, status: { in: ["RUNNING", "FINISHED"] } },
+        });
+        if (live > 0) throw new AppError("CONFLICT", "A challenge is already running for this participant.");
+      }
 
       let opponentId: string | undefined;
       if (cfg.template === "MATCH") {

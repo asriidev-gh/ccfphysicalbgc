@@ -106,16 +106,18 @@ export async function saveActivity(db: Db, actor: Actor, raw: unknown) {
 
   return db.$transaction(async (tx) => {
     if (id) {
-      const prev = await tx.eventActivity.findUnique({ where: { id }, include: { _count: { select: { attempts: true } } } });
+      const prev = await tx.eventActivity.findUnique({ where: { id } });
       if (!prev) throw new AppError("NOT_FOUND", "Activity not found.");
+      // Rules lock once anything has been scored; attempts that are cancelled or not yet scored don't count.
+      const scored = await tx.challengeResult.count({ where: { attempt: { activityId: id } } });
       const changed = JSON.stringify(parseScoringConfig(prev.scoringConfig).data ?? prev.scoringConfig) !== JSON.stringify(cfg.data);
       let scoringVersion = prev.scoringVersion;
       if (changed) {
         // Finalised/in-flight results were scored under the existing rules; never rewrite them silently.
-        if (prev._count.attempts > 0)
+        if (scored > 0)
           throw new AppError(
             "CONFLICT",
-            "Scoring rules are locked once attempts exist. Create a new activity or correct individual results.",
+            "Scoring rules are locked once results are recorded. Create a new activity or correct individual results.",
           );
         scoringVersion += 1;
         await tx.scoringConfigVersion.create({

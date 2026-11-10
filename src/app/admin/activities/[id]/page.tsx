@@ -42,9 +42,10 @@ export default async function ActivityEditor({
         where: { id },
         include: {
           assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
-          _count: { select: { attempts: true } },
         },
       });
+  // Rules lock once a result is recorded (matches saveActivity); unscored or cancelled attempts don't lock them.
+  const scoredCount = act ? await db.challengeResult.count({ where: { attempt: { activityId: act.id } } }) : 0;
   if (!isNew && !act) notFound();
 
   const eventId = act?.eventId ?? one(sp.event);
@@ -79,7 +80,7 @@ export default async function ActivityEditor({
     orderBy: { name: "asc" },
     select: { id: true, name: true, email: true },
   });
-  const locked = (act?._count.attempts ?? 0) > 0;
+  const locked = scoredCount > 0;
 
   return (
     <>

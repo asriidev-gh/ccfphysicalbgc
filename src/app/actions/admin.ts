@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { requireActionRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { AppError, toResult } from "@/lib/errors";
@@ -53,7 +52,8 @@ export const saveSportAction = async (fd: FormData) =>
 
 export async function saveActivityAction(fd: FormData) {
   const r = await saveActivityInner(fd);
-  if (r.ok && !s(fd, "id")) redirect(`/admin/activities/${r.data.id}`);
+  // The client navigates to redirectTo; a server redirect() made the form flash a network error.
+  if (r.ok && !s(fd, "id")) return { ...r, data: { ...r.data, redirectTo: `/admin/activities/${r.data.id}` } };
   return r;
 }
 

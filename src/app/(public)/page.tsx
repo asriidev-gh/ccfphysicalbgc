@@ -9,6 +9,7 @@ import { formatDateTime, formatTime } from "@/lib/utils";
 import { Badge, buttonVariants, Card, CardBody, EmptyState } from "@/components/ui";
 import { SportIcon } from "@/components/sport-icon";
 import { DustField, SpotlightGroup, TiltCard } from "@/components/home-motion";
+import { ChallengeDemo } from "@/components/challenge-demo";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -200,7 +201,7 @@ export default async function Home() {
                   </div>
                 </div>
                 {a.description && <p className="text-muted mt-3 text-sm">{a.description}</p>}
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex items-center gap-2">
                   {a.registrationStatus === "CLOSED" ? (
                     <Badge tone="warn">Registration closed</Badge>
                   ) : full ? (
@@ -209,6 +210,11 @@ export default async function Home() {
                     <Badge tone="ok">Open</Badge>
                   )}
                   {a.capacity !== null && <Badge>{Math.max(0, a.capacity - taken)} spots left</Badge>}
+                  {a.name.toLowerCase().includes("basketball") && (
+                    <span className="ml-auto">
+                      <ChallengeDemo src="/assets/video/basketball_challenge.mp4" title="Basketball challenge demo" />
+                    </span>
+                  )}
                 </div>
                 {a.capacity !== null && a.capacity > 0 && (
                   <div className="bg-surface-2 mt-3 h-1.5 overflow-hidden rounded-full" aria-hidden>

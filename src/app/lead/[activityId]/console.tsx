@@ -259,6 +259,10 @@ function ParticipantCard({
 }) {
   const { run, pending, error } = useAct();
   const [opponent, setOpponent] = useState("");
+  // Optimistic UI: show the timer the instant Start/Stop is clicked instead of after the server round trip.
+  // The official time is still the server's; these only drive what the lead sees while waiting.
+  const [optStart, setOptStart] = useState<{ at: string; n: number } | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
   const isMatch = data.activity.config.template === "MATCH";
   const used = row.attempts.filter((a) => a.status !== "CANCELLED").length;
   const remaining = used < data.activity.maxAttempts;
@@ -337,7 +341,19 @@ function ParticipantCard({
                 )}
                 <Button
                   disabled={pending || (isMatch && !opponent)}
-                  onClick={() => run(() => startAction(row.id, isMatch ? opponent : undefined))}
+                  onClick={() => {
+                    setOptStart({ at: new Date().toISOString(), n: row.attempts.length });
+                    run(async () => {
+                      try {
+                        const r = await startAction(row.id, isMatch ? opponent : undefined);
+                        if (!r.ok) setOptStart(null);
+                        return r;
+                      } catch (e) {
+                        setOptStart(null);
+                        throw e;
+                      }
+                    });
+                  }}
                 >
                   {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} Start
                 </Button>
@@ -353,6 +369,18 @@ function ParticipantCard({
           </p>
         )}
 
+        {!running && !finished && optStart && optStart.n === row.attempts.length && !error && (
+          <div className="border-brand/40 bg-brand/10 mt-4 rounded-md border p-4">
+            <p className="text-muted text-xs tracking-wider uppercase">Starting…</p>
+            <RunningTimer startedAt={optStart.at} serverNow={optStart.at} className="tabular font-display block text-5xl font-bold" />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button disabled>
+                <Square className="size-5" aria-hidden /> Stop &amp; score
+              </Button>
+            </div>
+          </div>
+        )}
+
         {running && (
           <div className="border-brand/40 bg-brand/10 mt-4 rounded-md border p-4">
             <p className="text-muted text-xs tracking-wider uppercase">
@@ -361,10 +389,27 @@ function ParticipantCard({
             <RunningTimer
               startedAt={running.startedAt}
               serverNow={data.serverNow}
+              frozen={stoppingId === running.id}
               className="tabular font-display block text-5xl font-bold"
             />
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button disabled={pending} onClick={() => run(() => finishAction(running.id))}>
+              <Button
+                disabled={pending || stoppingId === running.id}
+                onClick={() => {
+                  const id = running.id;
+                  setStoppingId(id); // freeze the display immediately
+                  run(async () => {
+                    try {
+                      const r = await finishAction(id);
+                      if (!r.ok) setStoppingId(null);
+                      return r;
+                    } catch (e) {
+                      setStoppingId(null);
+                      throw e;
+                    }
+                  });
+                }}
+              >
                 <Square className="size-5" aria-hidden /> Stop &amp; score
               </Button>
               <CancelAttempt attemptId={running.id} />
