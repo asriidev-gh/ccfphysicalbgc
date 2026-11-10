@@ -17,9 +17,11 @@ export function voterHash(voterId: string): string {
     .digest("hex");
 }
 
-export async function createBoothPhoto(db: Db, input: { imageUrl: string; templateId: string; ownerHash?: string }) {
+export async function createBoothPhoto(db: Db, input: { imageUrl: string; templateId: string; ownerHash?: string; ownerName?: string }) {
   if (!BOOTH_TEMPLATE_IDS.includes(input.templateId)) throw new AppError("VALIDATION", "Unknown template.");
-  return db.boothPhoto.create({ data: { imageUrl: input.imageUrl, templateId: input.templateId, ownerHash: input.ownerHash } });
+  return db.boothPhoto.create({
+    data: { imageUrl: input.imageUrl, templateId: input.templateId, ownerHash: input.ownerHash, ownerName: input.ownerName },
+  });
 }
 
 export interface BoothItem {
@@ -30,11 +32,12 @@ export interface BoothItem {
   liked: boolean;
   /** Posted from this device, so the viewer may delete it. */
   mine: boolean;
+  ownerName: string | null;
   createdAt: Date;
 }
 
 export async function listBoothPhotos(db: Db, opts: { sort: BoothSort; take: number; voter: string | null }) {
-  const take = Math.min(Math.max(opts.take, 1), 200);
+  const take = Math.min(Math.max(opts.take, 1), 500);
   const rows = await db.boothPhoto.findMany({
     where: { hidden: false },
     orderBy: opts.sort === "top" ? [{ likeCount: "desc" }, { createdAt: "desc" }] : [{ createdAt: "desc" }],
@@ -58,6 +61,7 @@ export async function listBoothPhotos(db: Db, opts: { sort: BoothSort; take: num
     likeCount: p.likeCount,
     liked: liked.has(p.id),
     mine: opts.voter !== null && p.ownerHash === opts.voter,
+    ownerName: p.ownerName,
     createdAt: p.createdAt,
   }));
   return { items, hasMore: rows.length > take };

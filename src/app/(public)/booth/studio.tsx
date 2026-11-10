@@ -90,6 +90,14 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
     registerStickerFonts(fonts);
     return null;
   });
+  const [ownerName, setOwnerName] = useState("");
+  useEffect(() => {
+    try {
+      setOwnerName(localStorage.getItem("booth_name") ?? "");
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
   const [group, setGroup] = useState<StickerGroup>("faith");
   const [values, setValues] = useState<Record<string, string>>({});
   const [phase, setPhase] = useState<Phase>("pick");
@@ -303,6 +311,16 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
 
   async function post() {
     if (!template) return;
+    const name = ownerName.trim();
+    if (!name) {
+      setError("Please enter your name so it shows on your photo.");
+      return;
+    }
+    try {
+      localStorage.setItem("booth_name", name);
+    } catch {
+      /* storage unavailable */
+    }
     setBusy("post");
     let redirecting = false;
     setError(null);
@@ -311,7 +329,7 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
       if (!blob) return;
       const res = await fetch("/api/booth", {
         method: "POST",
-        headers: { "content-type": "image/jpeg", "x-template": template.id },
+        headers: { "content-type": "image/jpeg", "x-template": template.id, "x-owner": encodeURIComponent(name) },
         body: blob,
       });
       const json = (await res.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string } | null;
@@ -681,6 +699,19 @@ export function BoothStudio({ fonts }: { fonts: Partial<Record<StickerFont, stri
             </div>
           )}
         </section>
+        <div className="mx-auto mt-4 max-w-md">
+          <label htmlFor="booth-owner" className="text-muted mb-1 block text-xs font-semibold">
+            Your name (shown on your photo)
+          </label>
+          <Input
+            id="booth-owner"
+            value={ownerName}
+            maxLength={60}
+            autoComplete="name"
+            placeholder="e.g. Andy Radam"
+            onChange={(e) => setOwnerName(e.target.value)}
+          />
+        </div>
         {error && (
           <p role="alert" className="text-bad mt-3 text-center text-sm">
             {error}

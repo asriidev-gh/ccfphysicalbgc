@@ -8,6 +8,7 @@ import { BOOTH_PAGE_SIZE, listBoothPhotos, VOTER_COOKIE, voterHash, type BoothSo
 import { cn } from "@/lib/utils";
 import { DeleteButton } from "./delete-button";
 import { LikeButton } from "./like-button";
+import { ShuffleGallery } from "./shuffle-gallery";
 
 export const metadata = { title: "Photobooth" };
 
@@ -15,22 +16,24 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 export default async function GalleryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
-  const sort: BoothSort = one(sp.sort) === "new" ? "new" : "top";
-  const take = Math.min(Math.max(Number(one(sp.n)) || BOOTH_PAGE_SIZE, BOOTH_PAGE_SIZE), 200);
+  const view = one(sp.sort) === "new" ? "new" : one(sp.sort) === "top" ? "top" : "shuffle";
+  const shuffle = view === "shuffle";
+  const sort: BoothSort = view === "top" ? "top" : "new";
+  const take = shuffle ? 500 : Math.min(Math.max(Number(one(sp.n)) || BOOTH_PAGE_SIZE, BOOTH_PAGE_SIZE), 200);
   const voterId = (await cookies()).get(VOTER_COOKIE)?.value;
   const { items, hasMore } = await listBoothPhotos(db, { sort, take, voter: voterId ? voterHash(voterId) : null });
 
-  const tab = (s: BoothSort) =>
+  const tab = (s: "shuffle" | BoothSort) =>
     cn(
       "inline-flex min-h-11 items-center rounded-md px-4 text-sm font-semibold",
-      sort === s ? "bg-brand text-white" : "bg-surface-2 text-muted hover:text-fg",
+      view === s ? "bg-brand text-white" : "bg-surface-2 text-muted hover:text-fg",
     );
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 pb-28 md:pb-8">
       <PageTitle
         title="Photobooth"
-        sub="Like your favourites. The most liked photos rise to the top."
+        sub="Like your favourites. Photos shuffle every few seconds, or sort by most liked."
         actions={
           <Link href="/booth/new" className={cn(buttonVariants({ size: "lg" }), "max-md:hidden")}>
             <Camera className="size-5" aria-hidden /> Start photobooth
@@ -43,16 +46,21 @@ export default async function GalleryPage({ searchParams }: { searchParams: Prom
         </p>
       )}
       <div className="mb-4 flex gap-2">
-        <Link href="/booth?sort=top" className={tab("top")} aria-current={sort === "top" ? "page" : undefined}>
+        <Link href="/booth" className={tab("shuffle")} aria-current={shuffle ? "page" : undefined}>
+          Shuffle
+        </Link>
+        <Link href="/booth?sort=top" className={tab("top")} aria-current={view === "top" ? "page" : undefined}>
           Most liked
         </Link>
-        <Link href="/booth?sort=new" className={tab("new")} aria-current={sort === "new" ? "page" : undefined}>
+        <Link href="/booth?sort=new" className={tab("new")} aria-current={view === "new" ? "page" : undefined}>
           Newest
         </Link>
       </div>
 
       {items.length === 0 ? (
         <EmptyState title="No photos yet" hint="Be the first to strike a pose." />
+      ) : shuffle ? (
+        <ShuffleGallery items={items} />
       ) : (
         <ul className="columns-2 gap-3 md:columns-3 lg:columns-4">
           {items.map((p) => (
@@ -61,6 +69,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: Prom
                 {/* eslint-disable-next-line @next/next/no-img-element -- Cloudinary serves the optimised size */}
                 <img src={boothThumb(p.imageUrl, 600)} alt="Photobooth photo" loading="lazy" className="block h-auto w-full" />
               </a>
+              {p.ownerName && <p className="truncate px-3 pt-2 text-sm font-semibold">{p.ownerName}</p>}
               <div className="flex items-center justify-between px-1">
                 <LikeButton photoId={p.id} initialLiked={p.liked} initialCount={p.likeCount} />
                 <div className="flex items-center">
@@ -79,7 +88,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: Prom
         </ul>
       )}
 
-      {hasMore && (
+      {hasMore && !shuffle && (
         <div className="mt-6 text-center">
           <Link
             href={`/booth?sort=${sort}&n=${take + BOOTH_PAGE_SIZE}`}

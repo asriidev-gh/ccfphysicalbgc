@@ -21,8 +21,15 @@ export async function POST(req: Request) {
     const templateId = req.headers.get("x-template") ?? "";
     // Validate the template before spending a Cloudinary upload.
     if (!BOOTH_TEMPLATE_IDS.includes(templateId)) throw new AppError("VALIDATION", "Unknown template.");
+    let ownerName = "";
+    try {
+      ownerName = decodeURIComponent(req.headers.get("x-owner") ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+    } catch {
+      /* malformed header: treat as no name */
+    }
+    if (!ownerName) throw new AppError("VALIDATION", "Please enter your name before publishing.");
     const imageUrl = await uploadPhoto(dataUrl, { folder: "physical-bgc/booth", maxBytes: BOOTH_MAX_BYTES });
-    const photo = await createBoothPhoto(db, { imageUrl, templateId, ownerHash: voterHash(await ensureVoterId()) });
+    const photo = await createBoothPhoto(db, { imageUrl, templateId, ownerHash: voterHash(await ensureVoterId()), ownerName });
     return NextResponse.json({ ok: true, id: photo.id, url: photo.imageUrl });
   } catch (e) {
     if (e instanceof AppError) {

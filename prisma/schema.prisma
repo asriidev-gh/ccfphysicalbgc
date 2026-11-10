@@ -444,6 +444,7 @@ model BoothPhoto {
   likeCount  Int      @default(0)
   hidden     Boolean  @default(false)
   ownerHash  String?
+  ownerName  String?
   createdAt  DateTime @default(now())
 
   likes BoothLike[]

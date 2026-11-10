@@ -14,7 +14,7 @@ export const viewport: Viewport = { themeColor: "#0b0b0c", width: "device-width"
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${body.variable} ${heading.variable} h-full`}>
-      <body className="flex min-h-full flex-col">{children}</body>
+      <body className="flex min-h-full flex-col" suppressHydrationWarning>{children}</body>
     </html>
   );
 }
