@@ -78,6 +78,28 @@ export async function deleteParticipant(db: Db, actor: Actor, participantId: str
   return { deleted: true };
 }
 
+/** Local-development: check everyone who is waiting (and has not started) back out to "not arrived". */
+export async function checkOutAll(db: Db, actor: Actor, activityId: string) {
+  assertDev();
+  await assertActivityAccess(db, actor, activityId);
+  const res = await db.activityRegistration.updateMany({
+    where: { activityId, queueStatus: "WAITING", attempts: { none: { status: { not: "CANCELLED" } } } },
+    data: { queueStatus: "NOT_ARRIVED", checkedInAt: null },
+  });
+  await audit(db, { actorId: actor.id, action: "dev.checkoutAll", entityType: "EventActivity", entityId: activityId, next: { count: res.count } });
+  return { count: res.count };
+}
+
+/** Set (or change) a participant's gender; gender leaderboards update immediately. */
+export async function setParticipantGender(db: Db, actor: Actor, participantId: string, gender: "MALE" | "FEMALE") {
+  const p = await db.participant.findUnique({ where: { id: participantId }, select: { id: true, gender: true } });
+  if (!p) throw new AppError("NOT_FOUND", "Participant not found.");
+  await db.participant.update({ where: { id: p.id }, data: { gender } });
+  await audit(db, { actorId: actor.id, action: "participant.gender", entityType: "Participant", entityId: p.id, previous: { gender: p.gender }, next: { gender } });
+  await publishAllResults(db);
+  return { gender };
+}
+
 /** Permanently delete every participant and everything attached to them. */
 export async function deleteAllParticipants(db: Db, actor: Actor) {
   assertDev();

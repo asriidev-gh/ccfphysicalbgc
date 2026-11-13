@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Trash2 } from "lucide-react";
-import { devDeleteAllParticipantsAction, devDeleteParticipantAction } from "@/app/actions/lead";
+import { devDeleteAllParticipantsAction, devDeleteParticipantAction, setParticipantGenderAction } from "@/app/actions/lead";
 import { Button } from "@/components/ui";
 
 function useDelete() {
@@ -24,6 +24,48 @@ function useDelete() {
     });
   };
   return { run, pending, error };
+}
+
+/** Assign or change a participant's gender; saves as soon as a value is picked. */
+export function GenderSelect({ participantId, value }: { participantId: string; value: "MALE" | "FEMALE" | null }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="inline-flex flex-col gap-1">
+      <select
+        aria-label="Gender"
+        value={value ?? ""}
+        disabled={pending}
+        onChange={(e) => {
+          const g = e.target.value;
+          if (!g) return;
+          setError(null);
+          start(async () => {
+            try {
+              const r = await setParticipantGenderAction(participantId, g);
+              if (!r.ok) setError(r.error ?? "Failed.");
+              router.refresh();
+            } catch {
+              setError("Network error.");
+            }
+          });
+        }}
+        className={`border-line bg-surface-2 min-h-9 rounded-md border px-2 text-sm ${value ? "" : "border-warn text-warn"}`}
+      >
+        <option value="" disabled>
+          Assign…
+        </option>
+        <option value="MALE">Male</option>
+        <option value="FEMALE">Female</option>
+      </select>
+      {error && (
+        <span role="alert" className="text-bad text-xs">
+          {error}
+        </span>
+      )}
+    </span>
+  );
 }
 
 /** Local development only. */

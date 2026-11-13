@@ -6,7 +6,7 @@ import { requireActionRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { toResult } from "@/lib/errors";
 import { lookupByReference } from "@/lib/services/lead";
-import { assertDev, deleteAllParticipants, deleteAllRecords, deleteParticipant } from "@/lib/services/dev-records";
+import { assertDev, deleteAllParticipants, checkOutAll, deleteAllRecords, deleteParticipant, setParticipantGender } from "@/lib/services/dev-records";
 import {
   cancelAttempt,
   checkIn,
@@ -167,6 +167,16 @@ export async function devDeleteAllRecordsAction(activityId: string) {
 
 export async function devDeleteParticipantAction(participantId: string) {
   return toResult(async () => deleteParticipant(db, await requireActionRole(...STAFF), z.string().uuid().parse(participantId)));
+}
+
+export async function setParticipantGenderAction(participantId: string, gender: string) {
+  return toResult(async () =>
+    setParticipantGender(db, await requireActionRole(...STAFF), z.string().uuid().parse(participantId), z.enum(["MALE", "FEMALE"]).parse(gender)),
+  );
+}
+
+export async function devCheckOutAllAction(activityId: string) {
+  return toResult(async () => checkOutAll(db, await requireActionRole(...STAFF), z.string().uuid().parse(activityId)));
 }
 
 export async function devDeleteAllParticipantsAction() {
