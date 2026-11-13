@@ -270,11 +270,22 @@ export async function startHeat(db: Db, actor: Actor, activityRegistrationIds: s
  * Record a runner crossing the line. When the activity has no result fields to enter (a pure
  * stopwatch result), the result is submitted automatically; otherwise staff enter the fields next.
  */
-export async function finishRunner(db: Db, actor: Actor, attemptId: string, overrideReason?: string) {
+/**
+ * The instant a stop counts from. Normally the moment the request arrives; when the lead used the two-step
+ * confirm, the client sends the (server-clock) time of the FIRST tap so the confirmation delay is not added to
+ * the runner's time. Only an earlier time within a short window is honoured; anything else falls back to receipt.
+ */
+export function effectiveStop(receivedAt: Date, claimedMs?: number): Date {
+  if (claimedMs === undefined || !Number.isFinite(claimedMs)) return receivedAt;
+  const t = Math.min(receivedAt.getTime(), Math.max(claimedMs, receivedAt.getTime() - 15_000));
+  return new Date(t);
+}
+
+export async function finishRunner(db: Db, actor: Actor, attemptId: string, overrideReason?: string, stopAtMs?: number) {
   // Stamp the stop instant on receipt so database round trips below never inflate the runner's time.
   const receivedAt = new Date();
   const attempt = await loadAttemptForActor(db, actor, attemptId);
-  if (attempt.status === "RUNNING") await finishAttempt(db, actor, attemptId, overrideReason, receivedAt);
+  if (attempt.status === "RUNNING") await finishAttempt(db, actor, attemptId, overrideReason, receivedAt, stopAtMs);
   else if (attempt.status !== "FINISHED") throw new AppError("CONFLICT", "This attempt is not running (it may already be finished).");
   const cfg = loadConfig(attempt.activity.scoringConfig);
   if (cfg.fields.length > 0) return { submitted: false };
@@ -369,10 +380,11 @@ export async function startStation(db: Db, actor: Actor, attemptId: string) {
  * Stop the running station and save its time. Stopping the last station ends the attempt: the total is the sum of
  * the station times, and the result is submitted automatically unless other required fields still need entering.
  */
-export async function stopStation(db: Db, actor: Actor, attemptId: string) {
-  const stoppedAt = new Date(); // stamp on receipt so database round trips never inflate the time
+export async function stopStation(db: Db, actor: Actor, attemptId: string, stopAtMs?: number) {
+  let stoppedAt = effectiveStop(new Date(), stopAtMs); // stamp on receipt so database round trips never inflate the time
   const { attempt, cfg, stations, state } = await loadStationAttempt(db, actor, attemptId);
   if (state.kind !== "running") throw new AppError("CONFLICT", "No station is running. Start the next station first.");
+  if (stoppedAt < new Date(state.startedAt)) stoppedAt = new Date(state.startedAt);
   const idx = state.index;
   let stationMs: number;
   try {
@@ -433,7 +445,14 @@ export async function stopStation(db: Db, actor: Actor, attemptId: string) {
   }
 }
 
-export async function finishAttempt(db: Db, actor: Actor, attemptId: string, overrideReason?: string, receivedAt = new Date()) {
+export async function finishAttempt(
+  db: Db,
+  actor: Actor,
+  attemptId: string,
+  overrideReason?: string,
+  receivedAt = new Date(),
+  stopAtMs?: number,
+) {
   const attempt = await loadAttemptForActor(db, actor, attemptId);
   // Every checkpoint on the route must be logged before the run can end, unless the lead overrides with a reason.
   const required = attempt.activity.checkpoints.length;
@@ -445,7 +464,14 @@ export async function finishAttempt(db: Db, actor: Actor, attemptId: string, ove
       throw new AppError("CONFLICT", `${skipped} checkpoint${skipped === 1 ? " is" : "s are"} not logged yet. Log them, or finish with a reason.`);
     if (skipped > 0 && overrideReason!.trim().length < 3) throw new AppError("VALIDATION", "Give a reason for finishing without all checkpoints.");
   }
-  const finishedAt = receivedAt;
+  let finishedAt = effectiveStop(receivedAt, stopAtMs);
+  if (finishedAt < attempt.startedAt) finishedAt = attempt.startedAt;
+  // Countdown activities: the run can never last longer than the configured timer, even if the lead finishes late.
+  const durationMin = loadConfig(attempt.activity.scoringConfig).params.durationMinutes;
+  if (durationMin) {
+    const cap = new Date(attempt.startedAt.getTime() + Math.round(durationMin * 60_000));
+    if (finishedAt > cap) finishedAt = cap;
+  }
   let elapsedMs: number;
   try {
     elapsedMs = elapsedBetween(attempt.startedAt, finishedAt);

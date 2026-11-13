@@ -45,6 +45,8 @@ export const scoringConfigSchema = z
         pointsPerLoss: z.number().optional(),
         /** TIME: when true the lead enters the time (field `timeMs`) instead of using the server timer. */
         manualTime: z.boolean().optional(),
+        /** Countdown length in minutes. The timer counts down from this; at zero the run ends and the lead enters the score. */
+        durationMinutes: z.number().min(0.5).max(600).optional(),
       })
       .default({}),
     primary: z.object({ direction }),

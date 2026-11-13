@@ -37,7 +37,9 @@ export default async function LeadActivityPage({
     throw e;
   }
 
-  const timed = ["TIME", "MULTI_STATION"].includes(data.activity.config.template);
+  // Every sport (timed, points, matches) starts with the Check-in / Start Challenge choice.
+  const timed = true;
+  const isMatch = data.activity.config.template === "MATCH";
   const chosen = mode === "checkin" || mode === "multiple" ? mode : null;
 
   if (timed && !chosen) {
@@ -59,7 +61,7 @@ export default async function LeadActivityPage({
           >
             <Users className="text-brand size-10" aria-hidden />
             <span className="font-display text-2xl font-bold uppercase">Start Challenge</span>
-            <span className="text-muted text-sm">A group starts together. Check runners in, start the heat, tap each finish.</span>
+            <span className="text-muted text-sm">{isMatch ? "Pick two checked-in players and start their match, then enter the score." : "A group starts together. Check runners in, start the heat, tap each finish."}</span>
           </Link>
         </div>
       </div>

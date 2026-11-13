@@ -110,7 +110,7 @@ export function LeadConsole({
           started while it is ACTIVE.
         </p>
       )}
-      {mode === "booth" && multi && <HeatPanel data={data} />}
+      {mode === "booth" && multi && (data.activity.config.template === "MATCH" ? <MatchPanel data={data} /> : <HeatPanel data={data} />)}
       {mode === "roster" && timed && (
         <HeatSelectBar
           data={data}
@@ -189,6 +189,12 @@ function useAct() {
   }
   return { run, pending, error, setError };
 }
+
+/** Configured countdown length in ms (null when the activity has no timer length). */
+const countdownMs = (data: LeadConsoleData) => {
+  const m = data.activity.config.params.durationMinutes;
+  return m ? Math.round(m * 60_000) : undefined;
+};
 
 const queueTone = { NOT_ARRIVED: "neutral", WAITING: "accent", IN_PROGRESS: "brand", DONE: "ok", WITHDRAWN: "bad" } as const;
 
@@ -323,6 +329,19 @@ function ParticipantCard({
     row.participantStatus === "ACTIVE" &&
     !running &&
     !finished;
+  const stopNow = (id: string, reason?: string, stopAtMs?: number) => {
+    setStoppingId(id); // freeze the display immediately
+    run(async () => {
+      try {
+        const r = await finishAction(id, reason, stopAtMs);
+        if (!r.ok) setStoppingId(null);
+        return r;
+      } catch (e) {
+        setStoppingId(null);
+        throw e;
+      }
+    });
+  };
   const canWithdraw = !checkinOnly && used === 0 && !running && !finished && (row.queue === "NOT_ARRIVED" || row.queue === "WAITING");
 
   return (
@@ -362,11 +381,6 @@ function ParticipantCard({
               <div className="mt-1 flex flex-wrap gap-2">
                 {!(checkinOnly && row.queue === "NOT_ARRIVED") && <Badge tone={queueTone[row.queue]}>{row.queue.replace("_", " ")}</Badge>}
                 {row.participantStatus !== "ACTIVE" && <Badge tone="bad">{row.participantStatus}</Badge>}
-                {!checkinOnly && (
-                  <Badge>
-                    {used}/{data.activity.maxAttempts} attempts
-                  </Badge>
-                )}
               </div>
             </div>
           </div>
@@ -441,6 +455,8 @@ function ParticipantCard({
                 startedAt={running.startedAt}
                 serverNow={data.serverNow}
                 frozen={stoppingId === running.id}
+                durationMs={countdownMs(data)}
+                onTimeUp={() => stopNow(running.id, undefined, new Date(running.startedAt).getTime() + (countdownMs(data) ?? 0))}
                 className="tabular font-display block text-5xl font-bold"
               />
             )}
@@ -449,20 +465,7 @@ function ParticipantCard({
               data={data}
               busy={pending || stoppingId === running.id}
               finishLabel="Stop & score"
-              onFinish={(reason) => {
-                const id = running.id;
-                setStoppingId(id); // freeze the display immediately
-                run(async () => {
-                  try {
-                    const r = await finishAction(id, reason);
-                    if (!r.ok) setStoppingId(null);
-                    return r;
-                  } catch (e) {
-                    setStoppingId(null);
-                    throw e;
-                  }
-                });
-              }}
+              onFinish={(reason, stopAtMs) => stopNow(running.id, reason, stopAtMs)}
             />
             <div className="mt-3">
               <CancelAttempt attemptId={running.id} />
@@ -487,6 +490,76 @@ function ParticipantCard({
                 <ResultLine key={a.id} attempt={a} data={data} />
               ))}
           </ul>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+/** Start Challenge for head-to-head matches: pick two checked-in players, start the match, then score it from the card below. */
+function MatchPanel({ data }: { data: LeadConsoleData }) {
+  const { run, pending, error } = useAct();
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const ready = data.rows.filter((r) => heatEligible(r, data));
+  const live = data.rows.filter((r) => r.attempts.some((t) => t.status === "RUNNING" || t.status === "FINISHED"));
+  const canStart = data.activity.status === "ACTIVE" && !!a && !!b && a !== b;
+  return (
+    <Card className="mt-4">
+      <CardBody className="space-y-4">
+        <div>
+          <p className="font-display text-lg font-bold uppercase">Start Challenge</p>
+          <p className="text-muted text-xs">Pick the two checked-in players for this match.</p>
+        </div>
+        {ready.length < 2 ? (
+          <p className="text-muted text-sm">Need at least two checked-in players. Check players in first.</p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <Select aria-label="Player 1" value={a} onChange={(e) => setA(e.target.value)} className="w-52">
+              <option value="">Player 1…</option>
+              {ready.filter((r) => r.id !== b).map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+            <span className="text-muted text-sm font-semibold">vs</span>
+            <Select aria-label="Player 2" value={b} onChange={(e) => setB(e.target.value)} className="w-52">
+              <option value="">Player 2…</option>
+              {ready.filter((r) => r.id !== a).map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+            <Button
+              disabled={pending || !canStart}
+              onClick={() =>
+                run(
+                  () => startAction(a, b),
+                  () => {
+                    setA("");
+                    setB("");
+                  },
+                )
+              }
+            >
+              {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} Start Challenge
+            </Button>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="text-bad text-sm">
+            {error}
+          </p>
+        )}
+        {live.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-muted text-xs tracking-wider uppercase">In play · score when finished</p>
+            {live.map((r) => (
+              <ParticipantCard key={r.id} row={r} data={data} others={[]} />
+            ))}
+          </div>
         )}
       </CardBody>
     </Card>
@@ -527,6 +600,27 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
       else n.add(id);
       return n;
     });
+
+  const durationMs = countdownMs(data);
+  const doFinish = (id: string, reason?: string, stopAtMs?: number) => {
+    setStopping((s) => new Set(s).add(id)); // freeze this runner's timer immediately
+    const release = () =>
+      setStopping((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
+    finisher.run(async () => {
+      try {
+        const r = await finishRunnerAction(id, reason, stopAtMs);
+        if (!r.ok) release();
+        return r;
+      } catch (e) {
+        release();
+        throw e;
+      }
+    });
+  };
 
   return (
     <Card className="mt-4">
@@ -629,6 +723,8 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
                         startedAt={attempt.startedAt}
                         serverNow={data.serverNow}
                         frozen={stopping.has(attempt.id)}
+                        durationMs={durationMs}
+                        onTimeUp={() => doFinish(attempt.id, undefined, new Date(attempt.startedAt).getTime() + (durationMs ?? 0))}
                         className="tabular font-display text-3xl font-bold"
                       />
                     )}
@@ -637,26 +733,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
                       data={data}
                       busy={stopping.has(attempt.id)}
                       finishLabel="Finish"
-                      onFinish={(reason) => {
-                        const id = attempt.id;
-                        setStopping((s) => new Set(s).add(id)); // freeze this runner's timer immediately
-                        const release = () =>
-                          setStopping((s) => {
-                            const n = new Set(s);
-                            n.delete(id);
-                            return n;
-                          });
-                        finisher.run(async () => {
-                          try {
-                            const r = await finishRunnerAction(id, reason);
-                            if (!r.ok) release();
-                            return r;
-                          } catch (e) {
-                            release();
-                            throw e;
-                          }
-                        });
-                      }}
+                      onFinish={(reason, stopAtMs) => doFinish(attempt.id, reason, stopAtMs)}
                     />
                     <div className="mt-2">
                       <CancelAttempt attemptId={attempt.id} />
@@ -747,7 +824,17 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
  * Two-step button: the first tap swaps it for "Yes, …" + Cancel in the same spot (no browser alert);
  * it disarms itself after a few seconds so a stray tap never lingers.
  */
+/** Server-clock "now" (same offset the running timers use), so a tap time can be sent to the server. */
+function useServerClock(serverNow: string) {
+  const offset = useRef(0);
+  useEffect(() => {
+    offset.current = new Date(serverNow).getTime() - Date.now();
+  }, [serverNow]);
+  return () => Date.now() + offset.current;
+}
+
 function ConfirmAction({
+  onArm,
   onConfirm,
   confirmLabel,
   disabled,
@@ -755,6 +842,7 @@ function ConfirmAction({
   variant,
   children,
 }: {
+  onArm?: () => void;
   onConfirm: () => void;
   confirmLabel: string;
   disabled?: boolean;
@@ -770,7 +858,12 @@ function ConfirmAction({
   }, [armed]);
   if (!armed)
     return (
-      <Button variant={variant} disabled={disabled} onClick={() => setArmed(true)} className={className}>
+      <Button variant={variant} disabled={disabled} onClick={() => {
+          onArm?.();
+          setArmed(true);
+        }}
+        className={className}
+      >
         {children}
       </Button>
     );
@@ -805,7 +898,7 @@ function RunControls({
   data: LeadConsoleData;
   busy: boolean;
   finishLabel: string;
-  onFinish: (overrideReason?: string) => void;
+  onFinish: (overrideReason?: string, stopAtMs?: number) => void;
 }) {
   if (data.activity.stations.length > 0) return <StationControls attempt={attempt} data={data} />;
   return <CheckpointControls attempt={attempt} data={data} busy={busy} finishLabel={finishLabel} onFinish={onFinish} />;
@@ -822,8 +915,10 @@ function CheckpointControls({
   data: LeadConsoleData;
   busy: boolean;
   finishLabel: string;
-  onFinish: (overrideReason?: string) => void;
+  onFinish: (overrideReason?: string, stopAtMs?: number) => void;
 }) {
+  const serverTime = useServerClock(data.serverNow);
+  const armedAt = useRef<number | undefined>(undefined);
   const { run, pending, error } = useAct();
   const [override, setOverride] = useState(false);
   const [reason, setReason] = useState("");
@@ -868,7 +963,8 @@ function CheckpointControls({
       <div className="flex flex-wrap items-center gap-2">
         <ConfirmAction
           disabled={disabled || !complete}
-          onConfirm={() => onFinish()}
+          onArm={() => (armedAt.current = serverTime())}
+          onConfirm={() => onFinish(undefined, armedAt.current)}
           confirmLabel={`Yes, ${finishLabel}`}
           className="bg-ok hover:bg-ok/85 min-h-14 w-full gap-2 text-lg font-bold text-black sm:w-auto sm:min-w-44 disabled:opacity-40"
         >
@@ -893,7 +989,8 @@ function CheckpointControls({
           <ConfirmAction
             variant="danger"
             disabled={disabled || reason.trim().length < 3}
-            onConfirm={() => onFinish(reason.trim())}
+            onArm={() => (armedAt.current = serverTime())}
+            onConfirm={() => onFinish(reason.trim(), armedAt.current)}
             confirmLabel={`Yes, ${finishLabel} anyway`}
           >
             {finishLabel} anyway
@@ -914,6 +1011,8 @@ function CheckpointControls({
  * time and shows "Start Station N" for the next; stopping the last one ends the run with the stations' sum as the total.
  */
 function StationControls({ attempt, data }: { attempt: LeadAttempt; data: LeadConsoleData }) {
+  const serverTime = useServerClock(data.serverNow);
+  const armedAt = useRef<number | undefined>(undefined);
   const { run, pending, error } = useAct();
   // Frozen is tied to the exact state it was pressed in: it holds until the refreshed data moves on (never resumes early).
   const [frozenAt, setFrozenAt] = useState<string | null>(null);
@@ -1002,7 +1101,8 @@ function StationControls({ attempt, data }: { attempt: LeadAttempt; data: LeadCo
       {st.kind === "running" && (
         <ConfirmAction
           disabled={pending || frozen}
-          onConfirm={() => act(() => stopStationAction(attempt.id))}
+          onArm={() => (armedAt.current = serverTime())}
+          onConfirm={() => act(() => stopStationAction(attempt.id, armedAt.current))}
           confirmLabel={`Yes, ${last ? `End ${stations[st.index].label} & Finish` : `End ${stations[st.index].label}`}`}
           className="min-h-14 w-full gap-2 text-lg font-bold sm:w-auto sm:min-w-52"
         >
@@ -1642,13 +1742,6 @@ function BoothScan({
                         <Badge tone={queueTone[r.queue]}>{r.queue.replace("_", " ")}</Badge>
                       </button>
                       <div className="flex shrink-0 items-center gap-2">
-                        {r.attempts.find((t) => t.status === "RUNNING") && (
-                          <RunningTimer
-                            startedAt={r.attempts.find((t) => t.status === "RUNNING")!.startedAt}
-                            serverNow={data.serverNow}
-                            className="tabular font-display text-2xl font-bold"
-                          />
-                        )}
                         {!checkinOnly && !multi && !selecting && data.activity.status === "ACTIVE" && heatEligible(r, data) && (
                           <Button
                             disabled={busy}

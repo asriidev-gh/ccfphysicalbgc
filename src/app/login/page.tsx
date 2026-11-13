@@ -5,7 +5,7 @@ import { LoginForm } from "./login-form";
 import { Logo } from "@/components/logo";
 import { Card, CardBody } from "@/components/ui";
 
-export const metadata = { title: "Staff sign in" };
+export const metadata = { title: "Leads Sign In" };
 
 export default async function LoginPage() {
   const actor = await getActor();
@@ -21,7 +21,7 @@ export default async function LoginPage() {
         </Link>
         <Card>
           <CardBody>
-            <h1 className="font-display mb-4 text-xl font-semibold">Staff sign in</h1>
+            <h1 className="font-display mb-4 text-xl font-semibold">Leads Sign In</h1>
             <LoginForm />
           </CardBody>
         </Card>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatDuration } from "@/lib/scoring/engine";
 
 /**
@@ -14,14 +14,24 @@ export function RunningTimer({
   serverNow,
   className,
   frozen = false,
+  durationMs,
+  onTimeUp,
 }: {
   startedAt: string;
   serverNow: string;
   className?: string;
   /** Hold the current value (e.g. while a stop request is in flight). */
   frozen?: boolean;
+  /** Count DOWN from this many ms instead of up. */
+  durationMs?: number;
+  /** Fired once when a countdown reaches zero. */
+  onTimeUp?: () => void;
 }) {
-  const [ms, setMs] = useState(0);
+  const [ms, setMs] = useState(durationMs ?? 0);
+  const cb = useRef(onTimeUp);
+  useEffect(() => {
+    cb.current = onTimeUp;
+  });
 
   useEffect(() => {
     const offset = new Date(serverNow).getTime() - Date.now();
@@ -29,13 +39,25 @@ export function RunningTimer({
     const now = () => Math.max(0, Date.now() + offset - start);
     if (frozen) return; // keep the last displayed value
     let raf = 0;
+    let fired = false;
     const tick = () => {
-      setMs(now());
+      const elapsed = now();
+      if (durationMs !== undefined) {
+        const left = Math.max(0, durationMs - elapsed);
+        setMs(left);
+        if (left === 0) {
+          if (!fired) {
+            fired = true;
+            cb.current?.();
+          }
+          return; // countdown finished: stop animating
+        }
+      } else setMs(elapsed);
       raf = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [startedAt, serverNow, frozen]);
+  }, [startedAt, serverNow, frozen, durationMs]);
 
   return (
     <span className={className} aria-live="off">

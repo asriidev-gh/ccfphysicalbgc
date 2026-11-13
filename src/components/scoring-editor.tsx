@@ -158,6 +158,29 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
             />
           </Labeled>
         )}
+        {cfg.template !== "TIME" && cfg.template !== "MULTI_STATION" && (
+          <Labeled label="Timer length (minutes)">
+            <Input
+              type="number"
+              min={0}
+              step="0.5"
+              placeholder="No countdown"
+              value={cfg.params.durationMinutes ?? ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCfg((c) => {
+                  const params = { ...c.params };
+                  if (v === "" || Number(v) <= 0) delete params.durationMinutes;
+                  else params.durationMinutes = Number(v);
+                  return { ...c, params };
+                });
+              }}
+            />
+            <span className="text-muted mt-1 block text-xs">
+              The timer counts down from this. When it reaches zero the run ends and the lead enters the score. Leave empty for no timer.
+            </span>
+          </Labeled>
+        )}
         {cfg.template === "TIME" && (
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input

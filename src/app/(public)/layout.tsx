@@ -14,7 +14,7 @@ const nav = [
 
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
   const actor = await getActor();
-  const links = [...nav, actor ? { href: homeFor(actor.role), label: "Dashboard" } : { href: "/login", label: "Staff login" }];
+  const links = [...nav, actor ? { href: homeFor(actor.role), label: "Dashboard" } : { href: "/login", label: "Leads Sign In" }];
   return (
     <>
       <header className="border-line bg-bg/95 md:bg-bg/90 sticky top-0 z-30 border-b md:backdrop-blur">

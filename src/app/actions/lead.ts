@@ -65,15 +65,30 @@ export async function startHeatAction(activityRegistrationIds: string[]) {
 
 const reasonSchema = z.string().max(300).optional();
 
-export async function finishRunnerAction(attemptId: string, overrideReason?: string) {
+const stopAtSchema = z.number().finite().optional();
+
+export async function finishRunnerAction(attemptId: string, overrideReason?: string, stopAtMs?: number) {
   return toResult(async () =>
-    finishRunner(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId), reasonSchema.parse(overrideReason)),
+    finishRunner(
+      db,
+      await requireActionRole(...STAFF),
+      z.string().uuid().parse(attemptId),
+      reasonSchema.parse(overrideReason),
+      stopAtSchema.parse(stopAtMs),
+    ),
   );
 }
 
-export async function finishAction(attemptId: string, overrideReason?: string) {
+export async function finishAction(attemptId: string, overrideReason?: string, stopAtMs?: number) {
   return toResult(async () =>
-    finishAttempt(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId), reasonSchema.parse(overrideReason)),
+    finishAttempt(
+      db,
+      await requireActionRole(...STAFF),
+      z.string().uuid().parse(attemptId),
+      reasonSchema.parse(overrideReason),
+      undefined,
+      stopAtSchema.parse(stopAtMs),
+    ),
   );
 }
 
@@ -148,8 +163,10 @@ export async function startStationAction(attemptId: string) {
   return toResult(async () => startStation(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId)));
 }
 
-export async function stopStationAction(attemptId: string) {
-  return toResult(async () => stopStation(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId)));
+export async function stopStationAction(attemptId: string, stopAtMs?: number) {
+  return toResult(async () =>
+    stopStation(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId), stopAtSchema.parse(stopAtMs)),
+  );
 }
 
 // Local-development record cleanup (also refused in production by the service layer).
