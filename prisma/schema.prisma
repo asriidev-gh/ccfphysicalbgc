@@ -149,6 +149,9 @@ model Event {
   registrations  Registration[]
   announcements  Announcement[]
   displaySettings LeaderboardDisplaySettings?
+  awardVotes    AwardVote[]
+  awardWinners  AwardWinner[]
+  awardReveals  AwardReveal[]
 
   @@index([status])
 }
@@ -253,6 +256,8 @@ model Participant {
 
   registrations Registration[]
   activityRegistrations ActivityRegistration[]
+  awardVotes AwardVote[]
+  awardWinners AwardWinner[]
 
   @@index([fullName])
   @@index([email])
@@ -544,4 +549,47 @@ model StationLog {
   attempt ChallengeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
 
   @@unique([attemptId, stationIndex])
+}
+
+/// Informal awards ballot: one vote per anonymous device (voterHash) per category. Categories live in
+/// src/lib/awards/categories.ts, so adding one needs no migration. Re-voting moves the vote.
+model AwardVote {
+  eventId   String   @db.Uuid
+  category  String
+  voterHash String
+  nomineeId String   @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event   Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  nominee Participant @relation(fields: [nomineeId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, category, voterHash])
+  @@index([eventId, category, nomineeId])
+  @@index([nomineeId])
+}
+
+/// The person an admin declares the awardee of an informal award (one per award per event). Public on /awardees.
+model AwardWinner {
+  eventId   String   @db.Uuid
+  category  String
+  nomineeId String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  event   Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  nominee Participant @relation(fields: [nomineeId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, category])
+  @@index([nomineeId])
+}
+
+/// A row means this award's awardee has been revealed on /awardees; until then the public page blurs it.
+model AwardReveal {
+  eventId    String   @db.Uuid
+  category   String
+  revealedAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, category])
 }

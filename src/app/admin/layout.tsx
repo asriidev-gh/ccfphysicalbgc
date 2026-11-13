@@ -16,6 +16,7 @@ const NAV = [
   ["/admin/display", "Leaderboard Control", "leaderboard"],
   ["/admin/announcements", "Announcements", "announcements"],
   ["/admin/booth", "Photobooth", "booth"],
+  ["/admin/awards", "Informal Awards", "awards"],
   ["/admin/prayers", "Prayer Wall", "prayers"],
   ["/admin/reports", "Reports & Exports", "reports"],
   ["/admin/audit", "Audit Logs", "audit"],

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
+  Award,
   BarChart3,
   Camera,
   CalendarDays,
@@ -44,6 +45,7 @@ const ICONS = {
   announcements: Megaphone,
   booth: Camera,
   prayers: HandHeart,
+  awards: Award,
   reports: BarChart3,
   audit: ScrollText,
   settings: Settings,
