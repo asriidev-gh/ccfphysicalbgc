@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Flag, Loader2, Pencil, Trash2, Play, QrCode, Square, UserCheck, Users, X } from "lucide-react";
+import { AlertTriangle, Check, Flag, FlagTriangleRight, Loader2, Pencil, Trash2, Play, QrCode, Square, UserCheck, Users, X } from "lucide-react";
 import {
   cancelAttemptAction,
   checkInAction,
@@ -12,7 +12,10 @@ import {
   disputeAction,
   finishAction,
   finishRunnerAction,
+  logCheckpointAction,
   reviewAction,
+  startStationAction,
+  stopStationAction,
   startHeatAction,
   scanLookupAction,
   startAction,
@@ -28,6 +31,7 @@ import type { ActionResult } from "@/lib/errors";
 import type { LeadAttempt, LeadConsoleData, LeadRow } from "@/lib/services/lead";
 import { photoThumb } from "@/lib/photo-url";
 import { cn } from "@/lib/utils";
+import { stationState } from "@/lib/stations";
 
 type Filter = "ALL" | "NO_RECORD" | "NOT_ARRIVED" | "WAITING" | "IN_PROGRESS" | "DONE";
 const FILTERS: [Filter, string][] = [
@@ -386,32 +390,35 @@ function ParticipantCard({
             <p className="text-muted text-xs tracking-wider uppercase">
               Attempt {running.number} running{running.opponentName ? ` vs ${running.opponentName}` : ""}
             </p>
-            <RunningTimer
-              startedAt={running.startedAt}
-              serverNow={data.serverNow}
-              frozen={stoppingId === running.id}
-              className="tabular font-display block text-5xl font-bold"
+            {data.activity.stations.length === 0 && (
+              <RunningTimer
+                startedAt={running.startedAt}
+                serverNow={data.serverNow}
+                frozen={stoppingId === running.id}
+                className="tabular font-display block text-5xl font-bold"
+              />
+            )}
+            <RunControls
+              attempt={running}
+              data={data}
+              busy={pending || stoppingId === running.id}
+              finishLabel="Stop & score"
+              onFinish={(reason) => {
+                const id = running.id;
+                setStoppingId(id); // freeze the display immediately
+                run(async () => {
+                  try {
+                    const r = await finishAction(id, reason);
+                    if (!r.ok) setStoppingId(null);
+                    return r;
+                  } catch (e) {
+                    setStoppingId(null);
+                    throw e;
+                  }
+                });
+              }}
             />
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                disabled={pending || stoppingId === running.id}
-                onClick={() => {
-                  const id = running.id;
-                  setStoppingId(id); // freeze the display immediately
-                  run(async () => {
-                    try {
-                      const r = await finishAction(id);
-                      if (!r.ok) setStoppingId(null);
-                      return r;
-                    } catch (e) {
-                      setStoppingId(null);
-                      throw e;
-                    }
-                  });
-                }}
-              >
-                <Square className="size-5" aria-hidden /> Stop &amp; score
-              </Button>
+            <div className="mt-3">
               <CancelAttempt attemptId={running.id} />
             </div>
           </div>
@@ -444,6 +451,9 @@ function ParticipantCard({
 function HeatPanel({ data }: { data: LeadConsoleData }) {
   const { run, pending, error } = useAct();
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [stopping, setStopping] = useState<Set<string>>(new Set());
+  // Separate from the start-heat action so finishing one runner never disables the others (or the Start button).
+  const finisher = useAct();
   const active = data.activity.status === "ACTIVE";
 
   const waiting = data.rows.filter(
@@ -524,9 +534,9 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
           </ul>
         )}
 
-        {error && (
+        {(error || finisher.error) && (
           <p role="alert" className="text-bad text-sm">
-            {error}
+            {error ?? finisher.error}
           </p>
         )}
 
@@ -539,16 +549,42 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-semibold">{row.name}</p>
-                      <RunningTimer
-                        startedAt={attempt.startedAt}
-                        serverNow={data.serverNow}
-                        className="tabular font-display text-3xl font-bold"
-                      />
+                      {data.activity.stations.length === 0 && (
+                        <RunningTimer
+                          startedAt={attempt.startedAt}
+                          serverNow={data.serverNow}
+                          frozen={stopping.has(attempt.id)}
+                          className="tabular font-display text-3xl font-bold"
+                        />
+                      )}
                     </div>
-                    <Button disabled={pending} onClick={() => run(() => finishRunnerAction(attempt.id))}>
-                      <Square className="size-5" aria-hidden /> Finish
-                    </Button>
                   </div>
+                  <RunControls
+                    attempt={attempt}
+                    data={data}
+                    busy={stopping.has(attempt.id)}
+                    finishLabel="Finish"
+                    onFinish={(reason) => {
+                      const id = attempt.id;
+                      setStopping((s) => new Set(s).add(id)); // freeze this runner's timer immediately
+                      const release = () =>
+                        setStopping((s) => {
+                          const n = new Set(s);
+                          n.delete(id);
+                          return n;
+                        });
+                      finisher.run(async () => {
+                        try {
+                          const r = await finishRunnerAction(id, reason);
+                          if (!r.ok) release();
+                          return r;
+                        } catch (e) {
+                          release();
+                          throw e;
+                        }
+                      });
+                    }}
+                  />
                   <div className="mt-2">
                     <CancelAttempt attemptId={attempt.id} />
                   </div>
@@ -606,6 +642,229 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
         )}
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * Route tracking for a running attempt: shows each checkpoint (done with its split, next, or still ahead),
+ * a "Passed <next>" button that logs the next one in order, and the finish button. Finish is only enabled
+ * once every checkpoint is logged; otherwise the lead can finish anyway by giving a reason (audited).
+ */
+function RunControls({
+  attempt,
+  data,
+  busy,
+  finishLabel,
+  onFinish,
+}: {
+  attempt: LeadAttempt;
+  data: LeadConsoleData;
+  busy: boolean;
+  finishLabel: string;
+  onFinish: (overrideReason?: string) => void;
+}) {
+  if (data.activity.stations.length > 0) return <StationControls attempt={attempt} data={data} />;
+  return <CheckpointControls attempt={attempt} data={data} busy={busy} finishLabel={finishLabel} onFinish={onFinish} />;
+}
+
+function CheckpointControls({
+  attempt,
+  data,
+  busy,
+  finishLabel,
+  onFinish,
+}: {
+  attempt: LeadAttempt;
+  data: LeadConsoleData;
+  busy: boolean;
+  finishLabel: string;
+  onFinish: (overrideReason?: string) => void;
+}) {
+  const { run, pending, error } = useAct();
+  const [override, setOverride] = useState(false);
+  const [reason, setReason] = useState("");
+  const names = data.activity.checkpoints;
+  const done = new Map(attempt.checkpoints.map((c) => [c.index, c.elapsedMs]));
+  const next = names.findIndex((_, i) => !done.has(i));
+  const complete = next === -1;
+  const disabled = busy || pending;
+
+  return (
+    <div className="mt-3 space-y-3">
+      {names.length > 0 && (
+        <>
+          <ol className="flex flex-wrap items-center gap-2 text-sm" aria-label="Route progress">
+            {names.map((n, i) => {
+              const ms = done.get(i);
+              return (
+                <li
+                  key={i}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-3 py-1",
+                    ms !== undefined ? "border-ok/50 bg-ok/10" : i === next ? "border-brand bg-brand/10 font-semibold" : "border-line text-muted",
+                  )}
+                >
+                  {ms !== undefined ? <Check className="text-ok size-4" aria-hidden /> : null}
+                  {n}
+                  {ms !== undefined && <span className="tabular text-muted">{formatDuration(ms)}</span>}
+                </li>
+              );
+            })}
+            <li className={cn("rounded-full border px-3 py-1", complete ? "border-brand bg-brand/10 font-semibold" : "border-line text-muted")}>
+              Finish
+            </li>
+          </ol>
+          {!complete && (
+            <Button disabled={disabled} onClick={() => run(() => logCheckpointAction(attempt.id, next))}>
+              {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Check className="size-5" aria-hidden />} Passed {names[next]}
+            </Button>
+          )}
+        </>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          disabled={disabled || !complete}
+          onClick={() => onFinish()}
+          className="bg-ok hover:bg-ok/85 min-h-14 w-full gap-2 text-lg font-bold text-black sm:w-auto sm:min-w-44 disabled:opacity-40"
+        >
+          {busy ? <Loader2 className="size-6 animate-spin" aria-hidden /> : <FlagTriangleRight className="size-6" aria-hidden />}
+          {busy ? "Saving…" : finishLabel}
+        </Button>
+        {!complete && !override && (
+          <Button variant="ghost" disabled={disabled} onClick={() => setOverride(true)}>
+            Finish without all checkpoints…
+          </Button>
+        )}
+      </div>
+      {!complete && override && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (e.g. checkpoint missed by marshal)"
+            aria-label="Reason for finishing without all checkpoints"
+            className="w-72"
+          />
+          <Button variant="danger" disabled={disabled || reason.trim().length < 3} onClick={() => onFinish(reason.trim())}>
+            {finishLabel} anyway
+          </Button>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="text-bad text-sm">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Multi-station run: every station has its own timer. The first starts with the run; Stop saves that station's
+ * time and shows "Start Station N" for the next; stopping the last one ends the run with the stations' sum as the total.
+ */
+function StationControls({ attempt, data }: { attempt: LeadAttempt; data: LeadConsoleData }) {
+  const { run, pending, error } = useAct();
+  // Frozen is tied to the exact state it was pressed in: it holds until the refreshed data moves on (never resumes early).
+  const [frozenAt, setFrozenAt] = useState<string | null>(null);
+  // On Start, begin counting locally at the tap; the server's own start instant replaces it once the data refreshes.
+  const [optStart, setOptStart] = useState<{ key: string; at: string } | null>(null);
+  const stations = data.activity.stations;
+  const st = stationState(attempt.startedAt, attempt.stations, stations.length);
+  const stateKey = st.kind === "complete" ? "complete" : `${st.kind}-${st.index}`;
+  const frozen = frozenAt === stateKey;
+  const times = new Map(attempt.stations.filter((s) => s.finishedAt).map((s) => [s.index, s.elapsedMs ?? 0]));
+  const last = st.kind === "running" && st.index === stations.length - 1;
+  const idx = st.kind === "complete" ? stations.length - 1 : st.index;
+
+  const act = (fn: () => Promise<ActionResult<unknown>>, optimisticStart = false) => {
+    setFrozenAt(stateKey);
+    if (optimisticStart) setOptStart({ key: stateKey, at: new Date().toISOString() });
+    const undo = () => {
+      setFrozenAt(null);
+      setOptStart(null);
+    };
+    run(async () => {
+      try {
+        const r = await fn();
+        if (!r.ok) undo();
+        return r;
+      } catch (e) {
+        undo();
+        throw e;
+      }
+    });
+  };
+
+  return (
+    <div className="mt-2 space-y-3">
+      <div>
+        <p className="text-muted text-xs tracking-wider uppercase">
+          {st.kind === "waiting" && !frozen ? `Ready for ${stations[idx].label}` : `${stations[idx].label} running`}
+        </p>
+        {st.kind === "running" ? (
+          <RunningTimer
+            key={`${attempt.id}-${st.index}`}
+            startedAt={st.startedAt}
+            serverNow={data.serverNow}
+            frozen={frozen}
+            className="tabular font-display block text-4xl font-bold"
+          />
+        ) : optStart && optStart.key === stateKey ? (
+          <RunningTimer startedAt={optStart.at} serverNow={optStart.at} className="tabular font-display block text-4xl font-bold" />
+        ) : (
+          <span className="tabular font-display block text-4xl font-bold">{formatDuration(0)}</span>
+        )}
+      </div>
+
+      <ol className="flex flex-wrap items-center gap-2 text-sm" aria-label="Stations">
+        {stations.map((s, i) => {
+          const ms = times.get(i);
+          return (
+            <li
+              key={s.key}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border px-3 py-1",
+                ms !== undefined ? "border-ok/50 bg-ok/10" : i === idx ? "border-brand bg-brand/10 font-semibold" : "border-line text-muted",
+              )}
+            >
+              {ms !== undefined && <Check className="text-ok size-4" aria-hidden />}
+              {s.label}
+              {ms !== undefined && <span className="tabular text-muted">{formatDuration(ms)}</span>}
+            </li>
+          );
+        })}
+        <li className="text-muted tabular">
+          Total so far: <span className="text-fg font-semibold">{formatDuration(st.doneMs)}</span>
+        </li>
+      </ol>
+
+      {st.kind === "waiting" && (
+        <Button
+          disabled={pending || frozen}
+          onClick={() => act(() => startStationAction(attempt.id), true)}
+          className="bg-ok hover:bg-ok/85 min-h-14 w-full gap-2 text-lg font-bold text-black sm:w-auto sm:min-w-52"
+        >
+          {pending ? <Loader2 className="size-6 animate-spin" aria-hidden /> : <Play className="size-6" aria-hidden />}
+          Start {stations[st.index].label}
+        </Button>
+      )}
+      {st.kind === "running" && (
+        <Button
+          disabled={pending || frozen}
+          onClick={() => act(() => stopStationAction(attempt.id))}
+          className="min-h-14 w-full gap-2 text-lg font-bold sm:w-auto sm:min-w-52"
+        >
+          {frozen ? <Loader2 className="size-6 animate-spin" aria-hidden /> : <Square className="size-6" aria-hidden />}
+          {frozen ? "Saving…" : last ? `End ${stations[st.index].label} & Finish` : `End ${stations[st.index].label}`}
+        </Button>
+      )}
+      {error && (
+        <p role="alert" className="text-bad text-sm">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -824,7 +1083,13 @@ function ScorePanel({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
   const cfg = data.activity.config;
   const router = useRouter();
   const key = useRef<string>(`${attempt.id}-${crypto.randomUUID()}`); // one idempotency key per submission
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    // Multi-station: pre-fill each station's recorded time (seconds) so the lead only adds what is missing.
+    const out: Record<string, string> = {};
+    for (const l of attempt.stations)
+      if (l.elapsedMs !== null && data.activity.stations[l.index]) out[data.activity.stations[l.index].key] = String(l.elapsedMs / 1000);
+    return out;
+  });
   const [status, setStatus] = useState<"VALID" | "INCOMPLETE" | "DISQUALIFIED" | "WITHDRAWN">("VALID");
   const [review, setReview] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});

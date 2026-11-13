@@ -34,6 +34,7 @@ interface ActivityOpts {
   independentApproval?: boolean;
   challengeStatus?: "DRAFT" | "ACTIVE";
   assign?: Actor[];
+  checkpoints?: string[];
 }
 
 const DAY = 86_400_000;
@@ -78,6 +79,7 @@ export async function makeWorld(
         requireApproval: o.requireApproval ?? true,
         independentApproval: o.independentApproval ?? true,
         challengeStatus: o.challengeStatus ?? "ACTIVE",
+        checkpoints: o.checkpoints ?? [],
         scoringConfig: cfg,
       },
     });
@@ -112,6 +114,7 @@ export function person(extra: Record<string, unknown> = {}) {
   return {
     fullName: `Person ${s}`,
     email: `p.${s}@test.local`,
+    gender: "MALE",
     activityIds: [] as string[],
     consent: true,
     eligibilityConfirmed: true,

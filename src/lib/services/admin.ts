@@ -79,6 +79,7 @@ const activityInput = z.object({
   description: z.string().trim().max(1000).default(""),
   instructions: z.string().trim().max(4000).default(""),
   location: z.string().trim().max(120).default(""),
+  checkpoints: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
   capacity: z.number().int().min(1).max(100000).nullable().default(null),
   waitlistEnabled: z.boolean().default(false),
   participation: z.enum(["INDIVIDUAL", "TEAM"]).default("INDIVIDUAL"),

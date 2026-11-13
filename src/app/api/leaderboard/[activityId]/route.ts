@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { getLeaderboard } from "@/lib/services/leaderboard";
+import { getLeaderboard, parseGender } from "@/lib/services/leaderboard";
 
 export const dynamic = "force-dynamic";
 
@@ -9,8 +9,12 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request, ctx: { params: Promise<{ activityId: string }> }) {
   const { activityId } = await ctx.params;
   if (!z.string().uuid().safeParse(activityId).success) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const limit = Number(new URL(req.url).searchParams.get("limit")) || undefined;
-  const board = await getLeaderboard(db, activityId, { limit: limit && limit > 0 ? Math.min(limit, 1000) : undefined });
+  const sp = new URL(req.url).searchParams;
+  const limit = Number(sp.get("limit")) || undefined;
+  const board = await getLeaderboard(db, activityId, {
+    limit: limit && limit > 0 ? Math.min(limit, 1000) : undefined,
+    gender: parseGender(sp.get("gender")),
+  });
   if (!board) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(board, { headers: { "Cache-Control": "no-store" } });
 }

@@ -17,8 +17,14 @@ afterAll(async () => {
 });
 
 let k = 0;
-async function score(activityId: string, raw: Record<string, unknown>, status: "VALID" | "DISQUALIFIED" = "VALID", approve = true) {
-  const r = await registerParticipant(db, w.event.slug, person({ activityIds: [activityId] }));
+async function score(
+  activityId: string,
+  raw: Record<string, unknown>,
+  status: "VALID" | "DISQUALIFIED" = "VALID",
+  approve = true,
+  gender: "MALE" | "FEMALE" = "MALE",
+) {
+  const r = await registerParticipant(db, w.event.slug, person({ activityIds: [activityId], gender }));
   const ar = await db.activityRegistration.findFirstOrThrow({
     where: { activityId, participant: { registrations: { some: { reference: r.reference } } } },
     include: { participant: true },
@@ -43,6 +49,22 @@ function waitFor<T>(fn: (resolve: (v: T) => void) => () => void, ms = 5000): Pro
 }
 
 describe("leaderboard", () => {
+  it("ranks men and women separately when filtered by gender", async () => {
+    const a = await w.makeActivity({ config: defaultScoringConfig("POINTS") });
+    const m = await score(a.id, { points: 10 }, "VALID", true, "MALE");
+    const f1 = await score(a.id, { points: 5 }, "VALID", true, "FEMALE");
+    const f2 = await score(a.id, { points: 7 }, "VALID", true, "FEMALE");
+    const all = await getLeaderboard(db, a.id);
+    expect(all!.rows.map((r) => r.name)).toEqual([m.name, f2.name, f1.name]);
+    const women = await getLeaderboard(db, a.id, { gender: "FEMALE" });
+    expect(women!.rows.map((r) => [r.rank, r.name])).toEqual([
+      [1, f2.name],
+      [2, f1.name],
+    ]);
+    const men = await getLeaderboard(db, a.id, { gender: "MALE" });
+    expect(men!.rows.map((r) => [r.rank, r.name])).toEqual([[1, m.name]]);
+  });
+
   it("excludes unapproved results from the public board and shows them as provisional for staff", async () => {
     const a = await w.makeActivity({ config: defaultScoringConfig("POINTS") });
     const pub = await score(a.id, { points: 10 });

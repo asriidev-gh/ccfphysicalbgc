@@ -67,6 +67,10 @@ const saveActivityInner = (fd: FormData) =>
       description: s(fd, "description"),
       instructions: s(fd, "instructions"),
       location: s(fd, "location"),
+      checkpoints: s(fd, "checkpoints")
+        .split(/\r?\n/)
+        .map((x) => x.trim())
+        .filter(Boolean),
       capacity: n(fd, "capacity"),
       waitlistEnabled: b(fd, "waitlistEnabled"),
       participation: s(fd, "participation") || "INDIVIDUAL",
@@ -189,6 +193,7 @@ export const walkInAction = async (eventSlug: string, fd: FormData) =>
         email: s(fd, "email") || undefined,
         mobile: s(fd, "mobile") || undefined,
         affiliation: s(fd, "affiliation") || undefined,
+        gender: s(fd, "gender"),
         activityIds: fd.getAll("activityIds").map(String),
         consent: b(fd, "consent"),
         eligibilityConfirmed: b(fd, "eligibilityConfirmed"),

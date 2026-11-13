@@ -81,6 +81,11 @@ enum ApprovalStatus {
   REJECTED
 }
 
+enum Gender {
+  MALE
+  FEMALE
+}
+
 enum DisplayMode {
   SINGLE_ACTIVITY
   ALL_SPORTS
@@ -170,6 +175,8 @@ model EventActivity {
   slug             String
   description      String            @default("")
   instructions     String            @default("")
+  /// Ordered intermediate checkpoints a runner must log before the lead can finish them (the finish line is implicit).
+  checkpoints      String[]          @default([])
   location         String            @default("")
   capacity         Int?
   waitlistEnabled  Boolean           @default(false)
@@ -235,6 +242,8 @@ model Participant {
   email       String?
   mobile      String?
   affiliation String?
+  /// Optional so participants registered before this field existed stay valid; required on registration.
+  gender      Gender?
   /// Cloudinary delivery URL of the registration photo (unguessable public id).
   photoUrl    String?
   eligibility Json              @default("{}")
@@ -323,10 +332,29 @@ model ChallengeAttempt {
   activityRegistration ActivityRegistration @relation("Primary", fields: [activityRegistrationId], references: [id], onDelete: Cascade)
   opponentRegistration ActivityRegistration? @relation("Opponent", fields: [opponentRegistrationId], references: [id], onDelete: SetNull)
   results              ChallengeResult[]
+  checkpointLogs       CheckpointLog[]
+  stationLogs          StationLog[]
 
   @@unique([activityRegistrationId, attemptNumber])
   @@index([activityId, status])
   @@index([activityId, heat])
+}
+
+/// A runner passing one of the activity's ordered checkpoints (split time from the heat start).
+model CheckpointLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  attemptId       String   @db.Uuid
+  /// Zero-based position in EventActivity.checkpoints.
+  checkpointIndex Int
+  checkpointName  String
+  loggedAt        DateTime
+  /// Whole milliseconds since the attempt's startedAt.
+  elapsedMs       Int
+  loggedById      String   @db.Uuid
+
+  attempt ChallengeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, checkpointIndex])
 }
 
 model ChallengeResult {
@@ -498,4 +526,22 @@ model PrayerReaction {
   request PrayerRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   @@id([requestId, voterHash, kind])
+}
+
+/// One station's own stopwatch segment (multi-station runs). The total is the sum of the stations' elapsedMs,
+/// so time between stations is not counted. Station 0 implicitly starts at the attempt's startedAt.
+model StationLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  attemptId    String    @db.Uuid
+  /// Zero-based position in the activity's params.stations.
+  stationIndex Int
+  startedAt    DateTime
+  finishedAt   DateTime?
+  /// Whole milliseconds for this station alone.
+  elapsedMs    Int?
+  loggedById   String    @db.Uuid
+
+  attempt ChallengeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, stationIndex])
 }

@@ -6,6 +6,7 @@ import { requireActionRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { toResult } from "@/lib/errors";
 import { lookupByReference } from "@/lib/services/lead";
+import { assertDev, deleteAllParticipants, deleteAllRecords, deleteParticipant } from "@/lib/services/dev-records";
 import {
   cancelAttempt,
   checkIn,
@@ -16,9 +17,12 @@ import {
   finishAttempt,
   finishRunner,
   flagDispute,
+  logCheckpoint,
   reviewResult,
   startAttempt,
   startHeat,
+  startStation,
+  stopStation,
   withdrawFromActivity,
   submitResult,
 } from "@/lib/services/challenge";
@@ -59,12 +63,22 @@ export async function startHeatAction(activityRegistrationIds: string[]) {
   return toResult(async () => startHeat(db, await requireActionRole(...STAFF), activityRegistrationIds));
 }
 
-export async function finishRunnerAction(attemptId: string) {
-  return toResult(async () => finishRunner(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId)));
+const reasonSchema = z.string().max(300).optional();
+
+export async function finishRunnerAction(attemptId: string, overrideReason?: string) {
+  return toResult(async () =>
+    finishRunner(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId), reasonSchema.parse(overrideReason)),
+  );
 }
 
-export async function finishAction(attemptId: string) {
-  return toResult(async () => finishAttempt(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId)));
+export async function finishAction(attemptId: string, overrideReason?: string) {
+  return toResult(async () =>
+    finishAttempt(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId), reasonSchema.parse(overrideReason)),
+  );
+}
+
+export async function logCheckpointAction(attemptId: string, checkpointIndex: number) {
+  return toResult(async () => logCheckpoint(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId), checkpointIndex));
 }
 
 export async function cancelAttemptAction(attemptId: string, fd: FormData) {
@@ -128,4 +142,33 @@ export async function scanLookupAction(activityId: string, scanned: string) {
   return toResult(async () =>
     lookupByReference(db, await requireActionRole(...STAFF), z.string().uuid().parse(activityId), z.string().max(500).parse(scanned)),
   );
+}
+
+export async function startStationAction(attemptId: string) {
+  return toResult(async () => startStation(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId)));
+}
+
+export async function stopStationAction(attemptId: string) {
+  return toResult(async () => stopStation(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId)));
+}
+
+// Local-development record cleanup (also refused in production by the service layer).
+
+export async function devDeleteRecordAction(resultId: string) {
+  return toResult(async () => {
+    assertDev();
+    return deleteResult(db, await requireActionRole(...STAFF), z.string().uuid().parse(resultId), "Deleted from local cleanup");
+  });
+}
+
+export async function devDeleteAllRecordsAction(activityId: string) {
+  return toResult(async () => deleteAllRecords(db, await requireActionRole(...STAFF), z.string().uuid().parse(activityId)));
+}
+
+export async function devDeleteParticipantAction(participantId: string) {
+  return toResult(async () => deleteParticipant(db, await requireActionRole(...STAFF), z.string().uuid().parse(participantId)));
+}
+
+export async function devDeleteAllParticipantsAction() {
+  return toResult(async () => deleteAllParticipants(db, await requireActionRole(...STAFF)));
 }

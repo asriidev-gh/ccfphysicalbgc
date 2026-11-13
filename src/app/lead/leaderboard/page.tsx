@@ -5,6 +5,8 @@ import { getLeaderboard } from "@/lib/services/leaderboard";
 import { EmptyState, PageTitle } from "@/components/ui";
 import { LiveBoard } from "@/components/live";
 import { SportIcon } from "@/components/sport-icon";
+import { listRecords } from "@/lib/services/dev-records";
+import { DevRecords } from "./dev-records";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Leaderboard" };
@@ -16,6 +18,9 @@ export default async function LeadLeaderboard() {
   const boards = (await Promise.all(acts.map(async (a) => ({ act: a, board: await getLeaderboard(db, a.id) })))).filter(
     (b) => b.board !== null,
   );
+  // Local development only: per-activity record lists for the cleanup panel.
+  const dev = process.env.NODE_ENV !== "production";
+  const records = new Map(dev ? await Promise.all(boards.map(async ({ act }) => [act.id, await listRecords(db, actor, act.id)] as const)) : []);
   return (
     <div className="mx-auto max-w-3xl">
       <PageTitle title="Leaderboard" sub="Only the sports you are assigned to" />
@@ -31,6 +36,7 @@ export default async function LeadLeaderboard() {
                 <span className="text-muted text-xs font-medium">{act.event.name}</span>
               </h2>
               <LiveBoard eventId={act.eventId} initial={board!} />
+              {dev && <DevRecords activityId={act.id} records={records.get(act.id) ?? []} />}
             </section>
           ))}
         </div>

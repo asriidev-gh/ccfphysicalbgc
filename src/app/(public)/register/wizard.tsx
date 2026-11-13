@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 const infoSchema = z.object({
   fullName: z.string().trim().min(2, "Please enter your full name").max(100),
   email: z.string().trim().min(1, "Please enter your email").email("Enter a valid email"),
+  gender: z.enum(["MALE", "FEMALE"], { error: "Please select your gender" }),
   website: z.string().optional(), // honeypot, kept hidden
 });
 type Info = z.infer<typeof infoSchema>;
@@ -56,7 +57,7 @@ export function RegisterWizard({ eventSlug }: { eventSlug: string }) {
   const uploadRef = useRef<HTMLInputElement>(null);
   const form = useForm<Info>({
     resolver: zodResolver(infoSchema),
-    defaultValues: { fullName: "", email: "", website: "" },
+    defaultValues: { fullName: "", email: "", gender: undefined, website: "" },
     mode: "onTouched",
   });
   const {
@@ -94,6 +95,7 @@ export function RegisterWizard({ eventSlug }: { eventSlug: string }) {
         const r = await registerAction(eventSlug, {
           fullName: v.fullName,
           email: v.email,
+          gender: v.gender,
           website: v.website,
           photo,
           consent,
@@ -104,7 +106,7 @@ export function RegisterWizard({ eventSlug }: { eventSlug: string }) {
           setError(r.error);
           if (r.fieldErrors) {
             setFieldErrors(r.fieldErrors);
-            if (r.fieldErrors.fullName || r.fieldErrors.email || r.fieldErrors.photo) setStep(0);
+            if (r.fieldErrors.fullName || r.fieldErrors.email || r.fieldErrors.gender || r.fieldErrors.photo) setStep(0);
             if (r.fieldErrors.photo) setPhotoError(r.fieldErrors.photo);
           }
         }
@@ -144,6 +146,19 @@ export function RegisterWizard({ eventSlug }: { eventSlug: string }) {
             hint="You will use it to find your registration."
           >
             <Input id="email" type="email" inputMode="email" autoComplete="email" {...register("email")} />
+          </Field>
+          <Field label="Gender" htmlFor="gender-male" error={errors.gender?.message ?? fieldErrors.gender}>
+            <div className="flex gap-3" role="radiogroup" aria-label="Gender">
+              {(["MALE", "FEMALE"] as const).map((g) => (
+                <label
+                  key={g}
+                  className="border-line bg-surface-2 has-[:checked]:border-brand has-[:checked]:bg-brand/15 flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded-md border px-3 text-sm font-semibold"
+                >
+                  <input id={`gender-${g.toLowerCase()}`} type="radio" value={g} className="sr-only" {...register("gender")} />
+                  {g === "MALE" ? "Male" : "Female"}
+                </label>
+              ))}
+            </div>
           </Field>
           <Field label="Your photo" htmlFor="photo-camera" error={photoError ?? undefined} hint="So the booth staff can recognise you.">
             <div className="flex items-center gap-4">
@@ -201,6 +216,7 @@ export function RegisterWizard({ eventSlug }: { eventSlug: string }) {
             <CardBody className="space-y-3 text-sm">
               <Row k="Name" v={getValues("fullName")} />
               <Row k="Email" v={getValues("email")} />
+              <Row k="Gender" v={getValues("gender") === "FEMALE" ? "Female" : "Male"} />
               <Row k="Activities" v="Show your QR code at any booth you want to join." />
               <label className="flex items-start gap-3 pt-2">
                 <input

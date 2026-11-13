@@ -67,6 +67,15 @@ export default async function ParticipantsPage({ searchParams }: { searchParams:
                 <Field label="Affiliation">
                   <Input name="affiliation" />
                 </Field>
+                <Field label="Gender">
+                  <select name="gender" required defaultValue="" className="border-line bg-surface-2 min-h-11 w-full rounded-md border px-3">
+                    <option value="" disabled>
+                      Select…
+                    </option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                  </select>
+                </Field>
                 <Field label="Email">
                   <Input name="email" type="email" />
                 </Field>

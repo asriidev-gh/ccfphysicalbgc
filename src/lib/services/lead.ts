@@ -12,6 +12,10 @@ export interface LeadAttempt {
   startedAt: string;
   elapsedMs: number | null;
   heat: number | null;
+  /** Checkpoints already passed, with split time from the start. */
+  checkpoints: { index: number; name: string; elapsedMs: number }[];
+  /** Multi-station runs: each station's own timer segment. */
+  stations: { index: number; startedAt: string; finishedAt: string | null; elapsedMs: number | null }[];
   opponentName: string | null;
   result: null | {
     id: string;
@@ -45,6 +49,10 @@ export interface LeadConsoleData {
     name: string;
     status: string;
     instructions: string;
+    /** Ordered route checkpoints before the finish line (empty = plain start/stop). */
+    checkpoints: string[];
+    /** Multi-station runs: ordered stations (key + label); empty for other templates. */
+    stations: { key: string; label: string }[];
     maxAttempts: number;
     requireApproval: boolean;
     independentApproval: boolean;
@@ -93,6 +101,8 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
           startedAt: true,
           elapsedMs: true,
           heat: true,
+          checkpointLogs: { orderBy: { checkpointIndex: "asc" }, select: { checkpointIndex: true, checkpointName: true, elapsedMs: true } },
+          stationLogs: { orderBy: { stationIndex: "asc" }, select: { stationIndex: true, startedAt: true, finishedAt: true, elapsedMs: true } },
           opponentRegistration: { select: { participant: { select: { fullName: true } } } },
           results: {
             where: { current: true },
@@ -134,6 +144,8 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
         startedAt: t.startedAt.toISOString(),
         elapsedMs: t.elapsedMs,
         heat: t.heat,
+        checkpoints: t.checkpointLogs.map((c) => ({ index: c.checkpointIndex, name: c.checkpointName, elapsedMs: c.elapsedMs })),
+        stations: t.stationLogs.map((s) => ({ index: s.stationIndex, startedAt: s.startedAt.toISOString(), finishedAt: s.finishedAt?.toISOString() ?? null, elapsedMs: s.elapsedMs })),
         opponentName: t.opponentRegistration?.participant.fullName ?? null,
         result: res
           ? {
@@ -160,6 +172,12 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
       name: a.name,
       status: a.challengeStatus,
       instructions: a.instructions,
+      checkpoints: a.checkpoints,
+      // A station's label follows its field's label, so renaming a field never leaves a stale station name.
+      stations:
+        config.template === "MULTI_STATION"
+          ? (config.params.stations ?? []).map((st) => ({ key: st.key, label: config.fields.find((fl) => fl.key === st.key)?.label || st.label }))
+          : [],
       maxAttempts: config.attemptPolicy.maxAttempts,
       requireApproval: a.requireApproval,
       independentApproval: a.independentApproval,

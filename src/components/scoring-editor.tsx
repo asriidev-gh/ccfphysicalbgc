@@ -11,6 +11,15 @@ import { defaultScoringConfig, TEMPLATE_LABELS } from "@/lib/scoring/templates";
  * against `scoringConfigSchema`; there is no free-form code or formula field.
  * The server re-validates on save.
  */
+/** Keep each station's saved label in step with its field's label. */
+function withStationLabels(c: ScoringConfig): ScoringConfig {
+  if (!c.params.stations) return c;
+  return {
+    ...c,
+    params: { ...c.params, stations: c.params.stations.map((st) => ({ key: st.key, label: c.fields.find((f) => f.key === st.key)?.label || st.label })) },
+  };
+}
+
 export function ScoringEditor({ name, initial, locked }: { name: string; initial: ScoringConfig; locked?: boolean }) {
   const [cfg, setCfg] = useState<ScoringConfig>(initial);
   const parsed = useMemo(() => scoringConfigSchema.safeParse(cfg), [cfg]);
@@ -22,7 +31,7 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
 
   return (
     <div className="space-y-5">
-      <input type="hidden" name={name} value={JSON.stringify(parsed.success ? parsed.data : cfg)} />
+      <input type="hidden" name={name} value={JSON.stringify(withStationLabels(parsed.success ? parsed.data : cfg))} />
       {locked && (
         <p className="border-warn/40 bg-warn/10 text-warn rounded-md border p-3 text-sm">
           Scoring rules are locked because results are already recorded. Use result corrections to fix individual scores.
@@ -35,8 +44,9 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
             disabled={dis}
             value={cfg.template}
             onChange={(e) => {
-              if (window.confirm("Switching template replaces the fields and rules below. Continue?"))
-                setCfg(defaultScoringConfig(e.target.value as ScoringTemplate));
+              const next = e.target.value as ScoringTemplate;
+              if (window.confirm("Switching template replaces the fields and rules below. Continue?")) setCfg(defaultScoringConfig(next));
+              else e.target.value = cfg.template; // keep the dropdown in step with the real template when cancelled
             }}
           >
             {/* Head-to-head matches (opponents) are not offered; only shown if an existing activity already uses it. */}
@@ -102,7 +112,21 @@ export function ScoringEditor({ name, initial, locked }: { name: string; initial
                 type="button"
                 variant="ghost"
                 aria-label={`Remove ${f.label}`}
-                onClick={() => set({ fields: cfg.fields.filter((_, j) => j !== i) })}
+                onClick={() =>
+                  setCfg((c) => {
+                    const gone = c.fields[i]?.key;
+                    const params = { ...c.params };
+                    // Deleting a field also drops any setting that pointed at it (e.g. the penalty rule),
+                    // otherwise validation fails on a reference the editor gives no way to clear.
+                    if (params.penaltyField === gone) {
+                      delete params.penaltyField;
+                      delete params.penaltyMs;
+                      delete params.penaltyPoints;
+                    }
+                    if (params.stations) params.stations = params.stations.filter((s) => s.key !== gone);
+                    return { ...c, fields: c.fields.filter((_, j) => j !== i), params };
+                  })
+                }
               >
                 <Trash2 className="size-4" />
               </Button>

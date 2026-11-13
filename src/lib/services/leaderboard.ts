@@ -35,6 +35,12 @@ interface Opts {
   /** Include results still awaiting approval (shown as provisional). Authorised views only. */
   includeProvisional?: boolean;
   limit?: number;
+  /** Rank only participants of this gender (ranks are recomputed within the group). */
+  gender?: "MALE" | "FEMALE";
+}
+
+export function parseGender(v: string | null | undefined): "MALE" | "FEMALE" | undefined {
+  return v === "MALE" || v === "FEMALE" ? v : undefined;
 }
 
 export async function getLeaderboard(db: Db, activityId: string, opts: Opts = {}): Promise<Leaderboard | null> {
@@ -56,7 +62,7 @@ export async function getLeaderboard(db: Db, activityId: string, opts: Opts = {}
     where: {
       current: true,
       disputed: false,
-      attempt: { activityId },
+      attempt: { activityId, ...(opts.gender ? { activityRegistration: { participant: { gender: opts.gender } } } : {}) },
       ...(opts.includeProvisional ? { approvalStatus: { in: ["APPROVED", "PENDING"] } } : { approvalStatus: "APPROVED", published: true }),
     },
     select: {
@@ -154,12 +160,12 @@ export async function getLeaderboard(db: Db, activityId: string, opts: Opts = {}
 }
 
 /** All publicly listed activities for an event, each with its published leaderboard. */
-export async function getEventBoards(db: Db, eventId: string, limit?: number): Promise<Leaderboard[]> {
+export async function getEventBoards(db: Db, eventId: string, limit?: number, gender?: "MALE" | "FEMALE"): Promise<Leaderboard[]> {
   const acts = await db.eventActivity.findMany({
     where: { eventId, leaderboardPublished: true, challengeStatus: { not: "DRAFT" } },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true },
   });
-  const boards = await Promise.all(acts.map((a) => getLeaderboard(db, a.id, { limit })));
+  const boards = await Promise.all(acts.map((a) => getLeaderboard(db, a.id, { limit, gender })));
   return boards.filter((b): b is Leaderboard => b !== null);
 }

@@ -10,10 +10,13 @@ import {
   dismissDispute,
   finishAttempt,
   finishRunner,
+  logCheckpoint,
   flagDispute,
   reviewResult,
   startAttempt,
   startHeat,
+  startStation,
+  stopStation,
   submitResult,
 } from "@/lib/services/challenge";
 import { exportResultsCsv } from "@/lib/services/admin";
@@ -21,6 +24,7 @@ import { createUser, saveActivity, saveSport, setActivityState, updateUser, list
 import { getLeaderboard } from "@/lib/services/leaderboard";
 import { registerParticipant } from "@/lib/services/registration";
 import { defaultScoringConfig, presetFor } from "@/lib/scoring/templates";
+import { scoringConfigSchema } from "@/lib/scoring/schema";
 import { makeWorld, makeUser, person, type World } from "./factory";
 
 let w: World;
@@ -383,5 +387,79 @@ describe("heat numbers", () => {
     expect(csv.split("\r\n")[0]).toContain("Heat");
     expect(csv).toContain(`"${a.name}","1"`);
     expect(await code(exportResultsCsv(db, w.lead, w.event.id))).toBe("FORBIDDEN");
+  });
+});
+
+describe("route checkpoints", () => {
+  it("requires every checkpoint, in order, before finishing; the lead can override with a reason", async () => {
+    const a = await w.makeActivity({ config: presetFor("running"), requireApproval: false, checkpoints: ["Point A", "Point B"] });
+    const [r1, r2] = await Promise.all([enrol(a.id), enrol(a.id)]);
+    const h = await startHeat(db, w.lead, [r1.id, r2.id]);
+    const [x, y] = h.attemptIds;
+
+    // cannot skip ahead, and the finish is blocked
+    expect(await code(logCheckpoint(db, w.lead, x, 1))).toBe("CONFLICT");
+    expect(await code(logCheckpoint(db, w.lead, x, 2))).toBe("VALIDATION");
+    expect(await code(finishRunner(db, w.lead, x))).toBe("CONFLICT");
+    expect(await code(logCheckpoint(db, w.otherLead, x, 0))).toBe("FORBIDDEN");
+
+    const first = await logCheckpoint(db, w.lead, x, 0);
+    expect(first.alreadyLogged).toBe(false);
+    // a double tap is a no-op and keeps the original split
+    expect(await logCheckpoint(db, w.lead, x, 0)).toMatchObject({ alreadyLogged: true, elapsedMs: first.elapsedMs });
+    expect(await code(finishRunner(db, w.lead, x))).toBe("CONFLICT");
+    await logCheckpoint(db, w.lead, x, 1);
+    expect(await db.checkpointLog.count({ where: { attemptId: x } })).toBe(2);
+    expect(await finishRunner(db, w.lead, x)).toEqual({ submitted: true });
+    // no more logging once finished
+    expect(await code(logCheckpoint(db, w.lead, x, 0))).toBe("CONFLICT");
+
+    // override needs a reason and is audited
+    expect(await code(finishRunner(db, w.lead, y, "x"))).toBe("VALIDATION");
+    expect(await finishRunner(db, w.lead, y, "marshal missed the runner at Point A")).toEqual({ submitted: true });
+    const log = await db.auditLog.findFirstOrThrow({ where: { entityId: y, action: "attempt.finish" } });
+    expect(JSON.stringify(log.next)).toContain("checkpointsSkipped");
+  });
+});
+
+describe("multi-station runs", () => {
+  it("times each station separately, skips the gaps, and totals the station times", async () => {
+    const cfg = scoringConfigSchema.parse({
+      ...defaultScoringConfig("MULTI_STATION"),
+      fields: [
+        { key: "s1", label: "Station 1", type: "duration_ms", min: 0 },
+        { key: "s2", label: "Station 2", type: "duration_ms", min: 0 },
+      ],
+      params: { stations: [{ key: "s1", label: "Station 1" }, { key: "s2", label: "Station 2" }] },
+    });
+    const a = await w.makeActivity({ config: cfg, requireApproval: false });
+    const r = await enrol(a.id);
+    const h = await startHeat(db, w.lead, [r.id]);
+    const id = h.attemptIds[0];
+
+    expect(await code(startStation(db, w.lead, id))).toBe("CONFLICT"); // nothing waiting yet
+    await new Promise((x) => setTimeout(x, 40));
+    const first = await stopStation(db, w.lead, id);
+    expect(first).toMatchObject({ finished: false, stationIndex: 0 });
+    expect(await code(stopStation(db, w.lead, id))).toBe("CONFLICT"); // must start station 2 first
+    expect(await code(stopStation(db, w.otherLead, id))).toBe("FORBIDDEN");
+
+    await new Promise((x) => setTimeout(x, 120)); // the gap between stations is not counted
+    await startStation(db, w.lead, id);
+    expect(await code(startStation(db, w.lead, id))).toBe("CONFLICT");
+    await new Promise((x) => setTimeout(x, 40));
+    const last = await stopStation(db, w.lead, id);
+    expect(last).toMatchObject({ finished: true, submitted: true, stationIndex: 1 });
+
+    const logs = await db.stationLog.findMany({ where: { attemptId: id }, orderBy: { stationIndex: "asc" } });
+    expect(logs).toHaveLength(2);
+    const sum = logs.reduce((s, l) => s + (l.elapsedMs ?? 0), 0);
+    expect(last.totalMs).toBe(sum);
+    const att = await db.challengeAttempt.findUniqueOrThrow({ where: { id }, include: { results: true } });
+    expect(att.status).toBe("SUBMITTED");
+    expect(att.elapsedMs).toBe(sum);
+    // wall-clock run time includes the ~120ms gap between stations; the total must not
+    expect(att.finishedAt!.getTime() - att.startedAt.getTime() - att.elapsedMs!).toBeGreaterThanOrEqual(100);
+    expect(att.results[0].finalValue!.toNumber()).toBe(sum);
   });
 });

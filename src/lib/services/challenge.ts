@@ -5,6 +5,7 @@ import type { Db, Tx } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { assertActivityAccess, assertAdmin, isAdmin, type Actor } from "@/lib/auth/policy";
 import { calculate, elapsedBetween, ScoringError } from "@/lib/scoring/engine";
+import { stationState } from "@/lib/stations";
 import { parseScoringConfig, type ScoringConfig } from "@/lib/scoring/schema";
 import { publish } from "@/lib/realtime/bus";
 import { audit } from "./audit";
@@ -269,9 +270,11 @@ export async function startHeat(db: Db, actor: Actor, activityRegistrationIds: s
  * Record a runner crossing the line. When the activity has no result fields to enter (a pure
  * stopwatch result), the result is submitted automatically; otherwise staff enter the fields next.
  */
-export async function finishRunner(db: Db, actor: Actor, attemptId: string) {
+export async function finishRunner(db: Db, actor: Actor, attemptId: string, overrideReason?: string) {
+  // Stamp the stop instant on receipt so database round trips below never inflate the runner's time.
+  const receivedAt = new Date();
   const attempt = await loadAttemptForActor(db, actor, attemptId);
-  if (attempt.status === "RUNNING") await finishAttempt(db, actor, attemptId);
+  if (attempt.status === "RUNNING") await finishAttempt(db, actor, attemptId, overrideReason, receivedAt);
   else if (attempt.status !== "FINISHED") throw new AppError("CONFLICT", "This attempt is not running (it may already be finished).");
   const cfg = loadConfig(attempt.activity.scoringConfig);
   if (cfg.fields.length > 0) return { submitted: false };
@@ -280,9 +283,169 @@ export async function finishRunner(db: Db, actor: Actor, attemptId: string) {
   return { submitted: true };
 }
 
-export async function finishAttempt(db: Db, actor: Actor, attemptId: string) {
+/**
+ * Log a runner passing checkpoint `checkpointIndex` (zero-based, in the activity's route order).
+ * Checkpoints must be logged in order; logging one twice is an idempotent no-op.
+ */
+export async function logCheckpoint(db: Db, actor: Actor, attemptId: string, checkpointIndex: number) {
+  const idx = z.number().int().min(0).max(49).parse(checkpointIndex);
   const attempt = await loadAttemptForActor(db, actor, attemptId);
-  const finishedAt = new Date();
+  const names = attempt.activity.checkpoints;
+  if (idx >= names.length) throw new AppError("VALIDATION", "That checkpoint does not exist for this activity.");
+  if (attempt.status !== "RUNNING") throw new AppError("CONFLICT", "This attempt is not running.");
+
+  const logs = await db.checkpointLog.findMany({ where: { attemptId }, select: { checkpointIndex: true, elapsedMs: true } });
+  const existing = logs.find((l) => l.checkpointIndex === idx);
+  if (existing) return { checkpointIndex: idx, elapsedMs: existing.elapsedMs, alreadyLogged: true };
+  if (idx > 0 && !logs.some((l) => l.checkpointIndex === idx - 1))
+    throw new AppError("CONFLICT", `Runner hasn't logged ${names[idx - 1]} yet. Checkpoints must be passed in order.`);
+
+  const loggedAt = new Date();
+  let elapsedMs: number;
+  try {
+    elapsedMs = elapsedBetween(attempt.startedAt, loggedAt);
+  } catch {
+    throw new AppError("CONFLICT", "Invalid timing data for this attempt.");
+  }
+  try {
+    await db.checkpointLog.create({
+      data: { attemptId, checkpointIndex: idx, checkpointName: names[idx], loggedAt, elapsedMs, loggedById: actor.id },
+    });
+  } catch (e) {
+    // A concurrent double tap lost the race on the unique key: treat as already logged.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")
+      return { checkpointIndex: idx, elapsedMs, alreadyLogged: true };
+    throw e;
+  }
+  await audit(db, {
+    actorId: actor.id,
+    action: "attempt.checkpoint",
+    entityType: "ChallengeAttempt",
+    entityId: attemptId,
+    next: { checkpoint: names[idx], index: idx, elapsedMs },
+  });
+  return { checkpointIndex: idx, elapsedMs, alreadyLogged: false };
+}
+
+// ───────── Multi-station: each station has its own start/stop; the total is the sum ─────────
+
+async function loadStationAttempt(db: Db, actor: Actor, attemptId: string) {
+  const attempt = await loadAttemptForActor(db, actor, attemptId);
+  const cfg = loadConfig(attempt.activity.scoringConfig);
+  const stations = cfg.template === "MULTI_STATION" ? (cfg.params.stations ?? []) : [];
+  if (stations.length === 0) throw new AppError("VALIDATION", "This activity has no stations.");
+  if (attempt.status !== "RUNNING") throw new AppError("CONFLICT", "This attempt is not running.");
+  const logs = await db.stationLog.findMany({ where: { attemptId }, orderBy: { stationIndex: "asc" } });
+  const state = stationState(
+    attempt.startedAt.toISOString(),
+    logs.map((l) => ({ index: l.stationIndex, startedAt: l.startedAt.toISOString(), finishedAt: l.finishedAt?.toISOString() ?? null, elapsedMs: l.elapsedMs })),
+    stations.length,
+  );
+  return { attempt, cfg, stations, state };
+}
+
+/** Begin the next station's timer (after the previous one was stopped). */
+export async function startStation(db: Db, actor: Actor, attemptId: string) {
+  const startedAt = new Date();
+  const { stations, state } = await loadStationAttempt(db, actor, attemptId);
+  if (state.kind !== "waiting") throw new AppError("CONFLICT", "There is no station waiting to start.");
+  try {
+    await db.stationLog.create({ data: { attemptId, stationIndex: state.index, startedAt, loggedById: actor.id } });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") throw new AppError("CONFLICT", "That station already started.");
+    throw e;
+  }
+  await audit(db, {
+    actorId: actor.id,
+    action: "attempt.station.start",
+    entityType: "ChallengeAttempt",
+    entityId: attemptId,
+    next: { station: stations[state.index].label, index: state.index },
+  });
+  return { stationIndex: state.index };
+}
+
+/**
+ * Stop the running station and save its time. Stopping the last station ends the attempt: the total is the sum of
+ * the station times, and the result is submitted automatically unless other required fields still need entering.
+ */
+export async function stopStation(db: Db, actor: Actor, attemptId: string) {
+  const stoppedAt = new Date(); // stamp on receipt so database round trips never inflate the time
+  const { attempt, cfg, stations, state } = await loadStationAttempt(db, actor, attemptId);
+  if (state.kind !== "running") throw new AppError("CONFLICT", "No station is running. Start the next station first.");
+  const idx = state.index;
+  let stationMs: number;
+  try {
+    stationMs = elapsedBetween(new Date(state.startedAt), stoppedAt);
+  } catch {
+    throw new AppError("CONFLICT", "Invalid timing data for this station.");
+  }
+
+  if (idx === 0) {
+    try {
+      await db.stationLog.create({
+        data: { attemptId, stationIndex: 0, startedAt: attempt.startedAt, finishedAt: stoppedAt, elapsedMs: stationMs, loggedById: actor.id },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") throw new AppError("CONFLICT", "That station was already stopped.");
+      throw e;
+    }
+  } else {
+    const res = await db.stationLog.updateMany({
+      where: { attemptId, stationIndex: idx, finishedAt: null },
+      data: { finishedAt: stoppedAt, elapsedMs: stationMs },
+    });
+    if (res.count === 0) throw new AppError("CONFLICT", "That station was already stopped.");
+  }
+  await audit(db, {
+    actorId: actor.id,
+    action: "attempt.station.stop",
+    entityType: "ChallengeAttempt",
+    entityId: attemptId,
+    next: { station: stations[idx].label, index: idx, elapsedMs: stationMs },
+  });
+
+  const totalMs = state.doneMs + stationMs;
+  if (idx < stations.length - 1) return { stationIndex: idx, stationMs, totalMs, finished: false, submitted: false };
+
+  // Last station: end the attempt. Total time = sum of the station times.
+  const res = await db.challengeAttempt.updateMany({
+    where: { id: attemptId, status: "RUNNING" },
+    data: { status: "FINISHED", finishedAt: stoppedAt, elapsedMs: totalMs },
+  });
+  if (res.count === 0) throw new AppError("CONFLICT", "This attempt is not running (it may already be finished).");
+  await audit(db, { actorId: actor.id, action: "attempt.finish", entityType: "ChallengeAttempt", entityId: attemptId, next: { elapsedMs: totalMs } });
+
+  // Auto-submit when nothing else is needed from the lead (any other field must be optional).
+  const stationKeys = new Set(stations.map((s) => s.key));
+  if (cfg.fields.some((f) => f.required && !stationKeys.has(f.key)))
+    return { stationIndex: idx, stationMs, totalMs, finished: true, submitted: false };
+  const logs = await db.stationLog.findMany({ where: { attemptId }, orderBy: { stationIndex: "asc" } });
+  const raw: Record<string, number> = {};
+  for (const l of logs) raw[stations[l.stationIndex].key] = l.elapsedMs ?? 0;
+  try {
+    await submitResult(db, actor, { attemptId, raw, status: "VALID", submitKey: `auto-${attemptId}` });
+    return { stationIndex: idx, stationMs, totalMs, finished: true, submitted: true };
+  } catch (e) {
+    // Leave it FINISHED for manual entry (the form is pre-filled with the station times).
+    if (e instanceof AppError && e.code === "VALIDATION") return { stationIndex: idx, stationMs, totalMs, finished: true, submitted: false };
+    throw e;
+  }
+}
+
+export async function finishAttempt(db: Db, actor: Actor, attemptId: string, overrideReason?: string, receivedAt = new Date()) {
+  const attempt = await loadAttemptForActor(db, actor, attemptId);
+  // Every checkpoint on the route must be logged before the run can end, unless the lead overrides with a reason.
+  const required = attempt.activity.checkpoints.length;
+  let skipped = 0;
+  if (required > 0) {
+    const logged = await db.checkpointLog.count({ where: { attemptId } });
+    skipped = required - logged;
+    if (skipped > 0 && !overrideReason?.trim())
+      throw new AppError("CONFLICT", `${skipped} checkpoint${skipped === 1 ? " is" : "s are"} not logged yet. Log them, or finish with a reason.`);
+    if (skipped > 0 && overrideReason!.trim().length < 3) throw new AppError("VALIDATION", "Give a reason for finishing without all checkpoints.");
+  }
+  const finishedAt = receivedAt;
   let elapsedMs: number;
   try {
     elapsedMs = elapsedBetween(attempt.startedAt, finishedAt);
@@ -300,7 +463,7 @@ export async function finishAttempt(db: Db, actor: Actor, attemptId: string) {
     action: "attempt.finish",
     entityType: "ChallengeAttempt",
     entityId: attempt.id,
-    next: { elapsedMs },
+    next: skipped > 0 ? { elapsedMs, checkpointsSkipped: skipped, overrideReason: overrideReason!.trim().slice(0, 300) } : { elapsedMs },
   });
   return { attemptId, finishedAt: finishedAt.toISOString(), elapsedMs };
 }

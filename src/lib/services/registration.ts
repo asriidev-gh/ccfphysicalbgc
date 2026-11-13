@@ -57,6 +57,7 @@ export const registrationInput = z.object({
     .transform((v) => (v ? normalizeMobile(v) : undefined))
     .refine((v) => v === undefined || /^(\+?\d{10,13}|0\d{10})$/.test(v), "Enter a valid mobile number"),
   affiliation: optionalText(100),
+  gender: z.enum(["MALE", "FEMALE"], { error: "Please select your gender" }),
   /** JPEG data URL (resized by the browser). Optional here; the public form requires it. */
   photo: z.string().max(220_000).optional(),
   /** Omitted on the public form: the participant is enrolled in every activity of the event. */
@@ -204,6 +205,7 @@ export async function registerParticipant(db: Db, eventSlug: string, rawInput: u
           email: input.email,
           mobile: input.mobile,
           affiliation: input.affiliation,
+          gender: input.gender,
           photoUrl,
           eligibility: { confirmed: true },
         },

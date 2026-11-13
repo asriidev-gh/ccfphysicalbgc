@@ -88,12 +88,42 @@ export function ConnectionBadge({ conn }: { conn: Connection }) {
   );
 }
 
-export function useBoard(eventId: string, activityId: string, initial: Leaderboard | null, limit?: number) {
+export type GenderFilter = "ALL" | "MALE" | "FEMALE";
+
+export function GenderTabs({ value, onChange }: { value: GenderFilter; onChange: (g: GenderFilter) => void }) {
+  const opts: { v: GenderFilter; label: string }[] = [
+    { v: "ALL", label: "Overall" },
+    { v: "MALE", label: "Male" },
+    { v: "FEMALE", label: "Female" },
+  ];
+  return (
+    <div className="flex gap-1" role="group" aria-label="Gender">
+      {opts.map((o) => (
+        <button
+          key={o.v}
+          onClick={() => onChange(o.v)}
+          aria-pressed={value === o.v}
+          className={cn(
+            "min-h-10 rounded-md border px-3 text-sm font-semibold",
+            value === o.v ? "border-brand bg-brand text-white" : "border-line bg-surface-2 text-muted",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function useBoard(eventId: string, activityId: string, initial: Leaderboard | null, limit?: number, gender: GenderFilter = "ALL") {
   const [board, setBoard] = useState<Leaderboard | null>(initial);
   const [error, setError] = useState(false);
   const load = useCallback(async () => {
     try {
-      const qs = limit ? `?limit=${limit}` : "";
+      const p = new URLSearchParams();
+      if (limit) p.set("limit", String(limit));
+      if (gender !== "ALL") p.set("gender", gender);
+      const qs = p.size ? `?${p}` : "";
       const res = await fetch(`/api/leaderboard/${activityId}${qs}`, { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
       setBoard((await res.json()) as Leaderboard);
@@ -101,7 +131,16 @@ export function useBoard(eventId: string, activityId: string, initial: Leaderboa
     } catch {
       setError(true);
     }
-  }, [activityId, limit]);
+  }, [activityId, limit, gender]);
+  // Reload when the gender filter changes (the initial server render is the unfiltered board).
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    void load();
+  }, [load]);
   const conn = useLiveSignal(eventId, activityId, load);
   return { board, conn, error, reload: load };
 }
@@ -159,11 +198,13 @@ export function BoardTable({ board, limit, big, query }: { board: Leaderboard | 
 export function LiveBoard({ eventId, initial }: { eventId: string; initial: Leaderboard }) {
   const [top, setTop] = useState<number | undefined>(undefined);
   const [q, setQ] = useState("");
-  const { board, conn, error } = useBoard(eventId, initial.activity.id, initial);
+  const [gender, setGender] = useState<GenderFilter>("ALL");
+  const { board, conn, error } = useBoard(eventId, initial.activity.id, initial, undefined, gender);
   return (
     <section aria-label={`${initial.activity.name} leaderboard`}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <ConnectionBadge conn={conn} />
+        <GenderTabs value={gender} onChange={setGender} />
         <input
           aria-label="Search participants"
           placeholder="Search name"

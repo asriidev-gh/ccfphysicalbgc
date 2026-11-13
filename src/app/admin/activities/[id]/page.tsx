@@ -114,6 +114,14 @@ export default async function ActivityEditor({
                 <Textarea name="instructions" defaultValue={act?.instructions} />
               </Field>
             </div>
+            <div className="sm:col-span-2">
+              <Field
+                label="Route checkpoints (timed runs)"
+                hint="One per line, in order, e.g. Point A. Runners must be logged at each before the lead can finish them. The finish line is added automatically. Leave empty for a plain start/stop."
+              >
+                <Textarea name="checkpoints" defaultValue={act?.checkpoints.join("\n")} placeholder={"Point A\nPoint B"} />
+              </Field>
+            </div>
             <Field label="Starts (optional, Manila)">
               <Input type="datetime-local" name="startsAt" defaultValue={act?.startsAt ? toManilaInput(act.startsAt) : ""} />
             </Field>

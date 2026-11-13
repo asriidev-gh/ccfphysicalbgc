@@ -9,6 +9,9 @@ export default async function LeadLayout({ children }: { children: React.ReactNo
   const nav = [
     { href: "/lead", label: "Check-In", icon: "activities" as const },
     { href: "/lead/leaderboard", label: "Leaderboard", icon: "leaderboard" as const },
+    ...(process.env.NODE_ENV !== "production"
+      ? [{ href: "/lead/participants", label: "All Participants", icon: "participants" as const }]
+      : []),
     { href: "/lead/settings", label: "Settings", icon: "settings" as const },
     ...(actor.role !== "ACTIVITY_LEAD" ? [{ href: "/admin", label: "Admin", icon: "overview" as const }] : []),
   ];
