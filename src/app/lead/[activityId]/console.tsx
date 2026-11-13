@@ -226,7 +226,7 @@ function HeatSelectBar({
     return (
       <div className="mt-6">
         <Button variant="secondary" onClick={onStart}>
-          <Users className="size-5" aria-hidden /> Select for heat
+          <Users className="size-5" aria-hidden /> Select for {/run/i.test(data.activity.name) ? "race" : "challenge"}
         </Button>
       </div>
     );
@@ -247,7 +247,7 @@ function HeatSelectBar({
             disabled={pending || data.activity.status !== "ACTIVE" || ids.length === 0}
             onClick={() => run(() => startHeatAction(ids), onStop)}
           >
-            {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} {/run/i.test(data.activity.name) ? "Start Race" : "Start heat"} (
+            {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} {/run/i.test(data.activity.name) ? "Start Race" : "Start Challenge"} (
             {ids.length})
           </Button>
         </div>
@@ -533,7 +533,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
       <CardBody className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-display text-lg font-bold uppercase">{/run/i.test(data.activity.name) ? "Start Race" : "Heat start"}</p>
+            <p className="font-display text-lg font-bold uppercase">{/run/i.test(data.activity.name) ? "Start Race" : "Start Challenge"}</p>
             <p className="text-muted text-xs">Select runners who are checked in. They all start on the same server instant.</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -569,7 +569,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
                 )
               }
             >
-              {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} {/run/i.test(data.activity.name) ? "Start Race" : "Start heat"} (
+              {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} {/run/i.test(data.activity.name) ? "Start Race" : "Start Challenge"} (
               {chosen.length})
             </Button>
           </div>
@@ -670,7 +670,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
 
         {heatList.length > 0 && (
           <div className="space-y-2">
-            <p className="text-muted text-xs tracking-wider uppercase">{/run/i.test(data.activity.name) ? "Race" : "Heat"} results</p>
+            <p className="text-muted text-xs tracking-wider uppercase">{/run/i.test(data.activity.name) ? "Race" : "Challenge"} results</p>
             {heatList.map(([n, items], i) => {
               // Shown number counts the races in this list (oldest = 1); `n` is only the stored id, which can have gaps.
               const ordered = [...items].sort((a, b) => {
@@ -682,7 +682,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
               return (
                 <details key={n} open={i === 0} className="border-line rounded-md border">
                   <summary className="cursor-pointer px-3 py-2 font-semibold">
-                    {/run/i.test(data.activity.name) ? "Race" : "Heat"} {heatList.length - i}{" "}
+                    {/run/i.test(data.activity.name) ? "Race" : items.length === 1 ? "Challenger" : "Challengers"} {heatList.length - i}{" "}
                     <span className="text-muted text-sm font-normal">
                       · {items.length} runner{items.length === 1 ? "" : "s"}
                     </span>
@@ -1489,7 +1489,7 @@ function BoothScan({
           const c = await checkInAction(id);
           if (!c.ok) return setError(c.error);
         }
-        setNotice(already ? `${row?.name} is already checked in.` : `${row?.name ?? "Runner"} is checked in and ready for the heat.`);
+        setNotice(already ? `${row?.name} is already checked in.` : `${row?.name ?? "Runner"} is checked in and ready for the ${/run/i.test(data.activity.name) ? "race" : "challenge"}.`);
       } else {
         // Booth / check-in mode: scanning only pulls the participant up. Staff tap "Check in" themselves.
         setNotice(already ? `${row?.name} is already checked in.` : null);
