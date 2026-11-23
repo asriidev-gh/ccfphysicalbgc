@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Db } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { assertAdmin, type Actor } from "@/lib/auth/policy";
-import { AWARD_CATEGORIES, awardCategory, canBeNominated, type MyBallot, type Nominee } from "@/lib/awards/categories";
+import { ATHLETE_PREFIX, AWARD_CATEGORIES, awardCategory, canBeNominated, type MyBallot, type Nominee } from "@/lib/awards/categories";
 import { audit } from "./audit";
 
 export const AWARD_COOKIE = "awards_voter";
@@ -123,9 +123,9 @@ export async function listRevealed(db: Db, eventId: string): Promise<Set<string>
 
 /** Reveal (or hide again) one award's awardee. */
 export async function setRevealed(db: Db, eventId: string, category: string, revealed: boolean) {
-  const cat = awardCategory(category);
-  if (!cat) throw new AppError("VALIDATION", "That award doesn't exist.");
-  const key = { eventId, category: cat.id };
+  const id = category.startsWith(ATHLETE_PREFIX) ? category : awardCategory(category)?.id;
+  if (!id || id.length > 80) throw new AppError("VALIDATION", "That award doesn't exist.");
+  const key = { eventId, category: id };
   if (revealed) await db.awardReveal.upsert({ where: { eventId_category: key }, create: key, update: {} });
   else await db.awardReveal.deleteMany({ where: key });
 }

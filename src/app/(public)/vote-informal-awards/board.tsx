@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, Search, Sparkles, Star, Trophy } from "lucide-react";
 import { castVoteAction, setRevealedAction } from "@/app/actions/awards";
-import { AWARD_CATEGORIES, canBeNominated, type MyBallot, type Nominee } from "@/lib/awards/categories";
+import { ATHLETE_PREFIX, AWARD_CATEGORIES, canBeNominated, type MyBallot, type Nominee } from "@/lib/awards/categories";
 import { cn } from "@/lib/utils";
 import { StarPhoto } from "@/components/star-photo";
 import { VoteSheet } from "./vote-sheet";
@@ -15,10 +15,12 @@ export function AwardsBoard({
   initialNominees,
   initialBallot,
   initialRevealed,
+  sports,
 }: {
   initialNominees: Nominee[];
   initialBallot: MyBallot;
   initialRevealed: string[];
+  sports: { id: string; name: string }[];
 }) {
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set(initialRevealed));
   const [revealing, setRevealing] = useState<ReadonlySet<string>>(new Set());
@@ -169,7 +171,7 @@ export function AwardsBoard({
             You&apos;ve voted in <b className="text-gold tabular">{voted}</b> of {AWARD_CATEGORIES.length} awards
           </p>
         </div>
-        <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {leaders.map(({ c, best, top }) => {
             const on = filter === c.id;
             const lead = top[0];
@@ -235,6 +237,38 @@ export function AwardsBoard({
           <p role="alert" className="text-bad mt-2 text-sm">
             {revealError}
           </p>
+        )}
+
+        {sports.length > 0 && (
+          <div className="mt-6">
+            <h3 className="font-display mb-2 text-base font-bold">Top Athletes</h3>
+            <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {sports.map((s) => {
+                const key = ATHLETE_PREFIX + s.id;
+                const open = revealed.has(key);
+                return (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      disabled={revealing.has(key)}
+                      aria-pressed={open}
+                      onClick={() => toggleReveal(key)}
+                      className={cn(
+                        "inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-full px-3 text-sm font-bold transition-[filter,background-color] disabled:opacity-60",
+                        open
+                          ? "border-gold text-gold hover:bg-gold/10 border"
+                          : "from-gold to-gold-deep bg-gradient-to-b text-black hover:brightness-110",
+                      )}
+                    >
+                      {open ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+                      {s.name}
+                      <span className="sr-only">{open ? " revealed, tap to hide" : " reveal top athletes"}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
       </section>
 

@@ -3,6 +3,7 @@ import { Star } from "lucide-react";
 import { db } from "@/lib/db";
 import { getCurrentEvent } from "@/lib/event";
 import { AWARD_COOKIE, awardVoterHash, listNominees, listRevealed, myBallot } from "@/lib/services/awards";
+import { getEventBoards } from "@/lib/services/leaderboard";
 import { AwardsBoard } from "./board";
 import { AccessGate } from "./access-gate";
 import { AWARDS_ACCESS_COOKIE, hasAwardsAccess } from "@/lib/services/awards-access";
@@ -27,13 +28,15 @@ export default async function AwardsPage() {
 
   const event = await getCurrentEvent();
   const voterId = jar.get(AWARD_COOKIE)?.value;
-  const [nominees, ballot, revealed] = event
+  const [nominees, ballot, revealed, boards] = event
     ? await Promise.all([
         listNominees(db, event.id),
         myBallot(db, event.id, voterId ? awardVoterHash(voterId) : null),
         listRevealed(db, event.id).then((s) => [...s]),
+        getEventBoards(db, event.id, 1, "MALE"),
       ])
-    : [[], {}, []];
+    : [[], {}, [], []];
+  const sports = boards.map((b) => ({ id: b.activity.id, name: b.activity.name }));
 
   return (
     <>
@@ -56,7 +59,7 @@ export default async function AwardsPage() {
         </div>
       </div>
       <div className="mx-auto max-w-6xl px-4 py-6 pb-28 md:pb-12">
-        <AwardsBoard initialNominees={nominees} initialBallot={ballot} initialRevealed={revealed} />
+        <AwardsBoard initialNominees={nominees} initialBallot={ballot} initialRevealed={revealed} sports={sports} />
       </div>
     </>
   );

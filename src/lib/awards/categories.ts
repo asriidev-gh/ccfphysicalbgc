@@ -2,14 +2,64 @@
 
 export type AwardGender = "MALE" | "FEMALE";
 
+/** Reveal key prefix for a sport's Top Athletes card on the Awardees page (followed by the activity id). */
+export const ATHLETE_PREFIX = "athlete-";
+
 export const AWARD_CATEGORIES = [
-  { id: "best-outfit", label: "Best Outfit", emoji: "👕", blurb: "Dressed to win, on and off the field.", gender: null },
-  { id: "most-punctual", label: "Most Punctual", emoji: "⏰", blurb: "First one in. Never late.", gender: null },
-  { id: "mr-energetic", label: "Mr. Energetic", emoji: "⚡", blurb: "Non-stop energy, all day long.", gender: "MALE" },
-  { id: "ms-energetic", label: "Ms. Energetic", emoji: "⚡", blurb: "Non-stop energy, all day long.", gender: "FEMALE" },
-  { id: "mr-olympia", label: "Mr. Olympia", emoji: "💪", blurb: "The strongest presence on the field.", gender: "MALE" },
-  { id: "ms-olympia", label: "Ms. Olympia", emoji: "💪", blurb: "The strongest presence on the field.", gender: "FEMALE" },
-] as const satisfies readonly { id: string; label: string; emoji: string; blurb: string; gender: AwardGender | null }[];
+  {
+    id: "best-outfit-male",
+    label: "Best Outfit (Male)",
+    emoji: "👕",
+    blurb: "Dressed to win, on and off the field.",
+    gender: "MALE",
+    group: "Best Outfit",
+  },
+  {
+    id: "best-outfit-female",
+    label: "Best Outfit (Female)",
+    emoji: "👕",
+    blurb: "Dressed to win, on and off the field.",
+    gender: "FEMALE",
+    group: "Best Outfit",
+  },
+  {
+    id: "most-punctual-male",
+    label: "Most Punctual (Male)",
+    emoji: "⏰",
+    blurb: "First one in. Never late.",
+    gender: "MALE",
+    group: "Most Punctual",
+  },
+  {
+    id: "most-punctual-female",
+    label: "Most Punctual (Female)",
+    emoji: "⏰",
+    blurb: "First one in. Never late.",
+    gender: "FEMALE",
+    group: "Most Punctual",
+  },
+  { id: "mr-energetic", label: "Mr. Energetic", emoji: "⚡", blurb: "Non-stop energy, all day long.", gender: "MALE", group: "Energetic" },
+  {
+    id: "ms-energetic",
+    label: "Ms. Energetic",
+    emoji: "⚡",
+    blurb: "Non-stop energy, all day long.",
+    gender: "FEMALE",
+    group: "Energetic",
+  },
+  { id: "mr-olympia", label: "Mr. Olympia", emoji: "💪", blurb: "The strongest presence on the field.", gender: "MALE", group: "Olympia" },
+  {
+    id: "ms-olympia",
+    label: "Ms. Olympia",
+    emoji: "💪",
+    blurb: "The strongest presence on the field.",
+    gender: "FEMALE",
+    group: "Olympia",
+  },
+] as const satisfies readonly { id: string; label: string; emoji: string; blurb: string; gender: AwardGender | null; group: string }[];
+
+/** Award groups in display order; each pairs a male and a female category. */
+export const AWARD_GROUPS: string[] = [...new Set<string>(AWARD_CATEGORIES.map((c) => c.group))];
 
 export type AwardCategory = (typeof AWARD_CATEGORIES)[number];
 export const AWARD_CATEGORY_IDS: string[] = AWARD_CATEGORIES.map((c) => c.id);
