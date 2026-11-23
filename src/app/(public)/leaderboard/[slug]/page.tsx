@@ -14,9 +14,9 @@ export default async function SportLeaderboard({ params }: { params: Promise<{ s
   if (!event) notFound();
   const act = await db.eventActivity.findUnique({
     where: { eventId_slug: { eventId: event.id, slug } },
-    select: { id: true, challengeStatus: true },
+    select: { id: true, challengeStatus: true, sport: { select: { active: true } } },
   });
-  if (!act || act.challengeStatus === "DRAFT") notFound();
+  if (!act || act.challengeStatus === "DRAFT" || !act.sport.active) notFound();
   const board = await getLeaderboard(db, act.id);
   if (!board) notFound();
   return (

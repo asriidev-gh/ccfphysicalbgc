@@ -162,7 +162,7 @@ export async function getLeaderboard(db: Db, activityId: string, opts: Opts = {}
 /** All publicly listed activities for an event, each with its published leaderboard. */
 export async function getEventBoards(db: Db, eventId: string, limit?: number, gender?: "MALE" | "FEMALE"): Promise<Leaderboard[]> {
   const acts = await db.eventActivity.findMany({
-    where: { eventId, leaderboardPublished: true, challengeStatus: { not: "DRAFT" } },
+    where: { eventId, leaderboardPublished: true, challengeStatus: { not: "DRAFT" }, sport: { active: true } },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true },
   });

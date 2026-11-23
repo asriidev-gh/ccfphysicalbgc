@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import type { Db } from "@/lib/db";
 import { AppError } from "@/lib/errors";
-import { assertAdmin, type Actor } from "@/lib/auth/policy";
+import { assertAdmin, assertRole, type Actor } from "@/lib/auth/policy";
 import { hashPassword } from "@/lib/auth/hash";
 import { parseScoringConfig } from "@/lib/scoring/schema";
 import { publish } from "@/lib/realtime/bus";
@@ -444,6 +444,25 @@ export async function editParticipant(db: Db, actor: Actor, participantId: strin
     previous: { status: prev.status, fullName: prev.fullName },
     next: { status: input.status, fullName: input.fullName },
   });
+}
+
+/** Permanently delete a participant and everything tied to them (registrations, attempts, award votes). Super admins only. */
+export async function deleteParticipant(db: Db, actor: Actor, participantId: string) {
+  assertRole(actor, "SUPER_ADMIN");
+  const prev = await db.participant.findUnique({
+    where: { id: participantId },
+    select: { fullName: true, email: true, registrations: { select: { eventId: true } } },
+  });
+  if (!prev) throw new AppError("NOT_FOUND", "Participant not found.");
+  await db.participant.delete({ where: { id: participantId } });
+  await audit(db, {
+    actorId: actor.id,
+    action: "participant.delete",
+    entityType: "Participant",
+    entityId: participantId,
+    previous: { fullName: prev.fullName, email: prev.email },
+  });
+  for (const eventId of new Set(prev.registrations.map((r) => r.eventId))) await publish(db, { kind: "display", eventId });
 }
 
 /** Neutralise spreadsheet formula injection in exported cells. */

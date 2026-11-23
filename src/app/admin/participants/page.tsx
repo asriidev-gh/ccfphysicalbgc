@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { listRegistrations } from "@/lib/services/admin";
-import { cancelRegistrationAction, editParticipantAction, walkInAction } from "@/app/actions/admin";
+import { cancelRegistrationAction, deleteParticipantAction, editParticipantAction, walkInAction } from "@/app/actions/admin";
 import { ActionButton } from "@/components/action-button";
 import { ActionForm } from "@/components/action-form";
 import { Badge, buttonVariants, Card, CardBody, CardHeader, CardTitle, EmptyState, Field, Input, PageTitle, Select } from "@/components/ui";
@@ -68,7 +68,12 @@ export default async function ParticipantsPage({ searchParams }: { searchParams:
                   <Input name="affiliation" />
                 </Field>
                 <Field label="Gender">
-                  <select name="gender" required defaultValue="" className="border-line bg-surface-2 min-h-11 w-full rounded-md border px-3">
+                  <select
+                    name="gender"
+                    required
+                    defaultValue=""
+                    className="border-line bg-surface-2 min-h-11 w-full rounded-md border px-3"
+                  >
                     <option value="" disabled>
                       Select…
                     </option>
@@ -167,6 +172,15 @@ export default async function ParticipantsPage({ searchParams }: { searchParams:
                         action={cancelRegistrationAction.bind(null, r.id)}
                       >
                         Cancel registration
+                      </ActionButton>
+                    )}
+                    {actor.role === "SUPER_ADMIN" && (
+                      <ActionButton
+                        variant="danger"
+                        confirm={`Permanently delete ${r.participant.fullName}? This removes their registrations, results and award votes, and cannot be undone.`}
+                        action={deleteParticipantAction.bind(null, r.participantId)}
+                      >
+                        Delete participant permanently
                       </ActionButton>
                     )}
                   </div>

@@ -173,6 +173,13 @@ export const editParticipantAction = async (participantId: string, fd: FormData)
     });
   });
 
+export const deleteParticipantAction = async (participantId: string) =>
+  toResult(async () => {
+    const actor = await requireActionRole("SUPER_ADMIN");
+    await admin.deleteParticipant(db, actor, participantId);
+    for (const p of ["/admin/participants", "/admin/registrations", "/awardees", "/leaderboard"]) revalidatePath(p);
+  });
+
 export const cancelRegistrationAction = async (registrationId: string) =>
   run(["/admin/participants", "/admin/registrations"], async (a) => {
     await cancelRegistrationById(db, registrationId, a.id, "admin");

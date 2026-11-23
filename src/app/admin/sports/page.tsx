@@ -35,7 +35,7 @@ function SportForm({ s }: { s?: SportRow }) {
           </Select>
         </Field>
         <label className="flex min-h-11 items-end gap-3 pb-2">
-          <input type="checkbox" name="active" defaultChecked={s?.active ?? true} className="size-5 accent-[var(--brand)]" /> Active
+          <input type="checkbox" name="active" defaultChecked={s?.active ?? true} className="size-5 accent-[var(--brand)]" /> Active (shown publicly)
         </label>
       </div>
       <Field label="Description">

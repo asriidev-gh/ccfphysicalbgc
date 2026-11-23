@@ -35,7 +35,7 @@ export default async function Home() {
     );
   const [activities, announcements] = await Promise.all([
     db.eventActivity.findMany({
-      where: { eventId: event.id, challengeStatus: { not: "DRAFT" } },
+      where: { eventId: event.id, challengeStatus: { not: "DRAFT" }, sport: { active: true } },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       include: { sport: { select: { icon: true } }, _count: { select: { registrations: { where: { status: "CONFIRMED" } } } } },
     }),
@@ -45,7 +45,7 @@ export default async function Home() {
   const list = activities.length
     ? activities
     : await db.eventActivity.findMany({
-        where: { eventId: event.id },
+        where: { eventId: event.id, sport: { active: true } },
         orderBy: [{ sortOrder: "asc" }],
         include: { sport: { select: { icon: true } }, _count: { select: { registrations: { where: { status: "CONFIRMED" } } } } },
       });
