@@ -13,7 +13,7 @@ export default async function ActivitiesPage({ searchParams }: { searchParams: P
   const { event } = await resolveEvent(one((await searchParams).event));
   if (!event) return <EmptyState title="Create an event first" />;
   const acts = await db.eventActivity.findMany({
-    where: { eventId: event.id },
+    where: { eventId: event.id, sport: { active: true } },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     include: {
       sport: { select: { name: true, icon: true } },

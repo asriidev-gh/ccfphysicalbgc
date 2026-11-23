@@ -23,7 +23,7 @@ export default async function AdminOverview({ searchParams }: { searchParams: Pr
   const [s, acts] = await Promise.all([
     overviewStats(db, actor, event.id),
     db.eventActivity.findMany({
-      where: { eventId: event.id },
+      where: { eventId: event.id, sport: { active: true } },
       orderBy: { sortOrder: "asc" },
       select: {
         id: true,

@@ -14,7 +14,7 @@ export default async function RegistrationsPage({
   const { event } = await resolveEvent(one((await searchParams).event));
   if (!event) return <EmptyState title="Create an event first" />;
   const acts = await db.eventActivity.findMany({
-    where: { eventId: event.id },
+    where: { eventId: event.id, sport: { active: true } },
     orderBy: { sortOrder: "asc" },
     select: { id: true, name: true, capacity: true, waitlistEnabled: true },
   });

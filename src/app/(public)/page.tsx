@@ -14,6 +14,12 @@ import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+/** Activities (matched by name) that have a challenge demo video. */
+const DEMOS = [
+  { match: "basketball", src: "/assets/video/basketball_challenge.mp4", title: "Basketball challenge demo" },
+  { match: "badminton", src: "/assets/video/badminton_challenge.mp4", title: "Badminton challenge demo" },
+];
+
 const delay = (ms: number) => ({ "--d": `${ms}ms` }) as React.CSSProperties;
 
 // Splits a word into letters that slam in one after another (see `.slam` in globals.css).
@@ -210,11 +216,11 @@ export default async function Home() {
                     <Badge tone="ok">Open</Badge>
                   )}
                   {a.capacity !== null && <Badge>{Math.max(0, a.capacity - taken)} spots left</Badge>}
-                  {a.name.toLowerCase().includes("basketball") && (
-                    <span className="ml-auto">
-                      <ChallengeDemo src="/assets/video/basketball_challenge.mp4" title="Basketball challenge demo" />
+                  {DEMOS.filter((d) => a.name.toLowerCase().includes(d.match)).map((d) => (
+                    <span key={d.match} className="ml-auto">
+                      <ChallengeDemo src={d.src} title={d.title} />
                     </span>
-                  )}
+                  ))}
                 </div>
                 {a.capacity !== null && a.capacity > 0 && (
                   <div className="bg-surface-2 mt-3 h-1.5 overflow-hidden rounded-full" aria-hidden>

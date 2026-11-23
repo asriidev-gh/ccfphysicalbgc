@@ -600,7 +600,7 @@ export async function overviewStats(db: Db, actor: Actor, eventId: string) {
     db.challengeAttempt.count({ where: { activity: { eventId }, status: "RUNNING" } }),
     db.challengeAttempt.count({ where: { activity: { eventId }, status: "SUBMITTED" } }),
     db.challengeResult.count({ where: { attempt: { activity: { eventId } }, current: true, approvalStatus: "PENDING" } }),
-    db.eventActivity.count({ where: { eventId, challengeStatus: "ACTIVE" } }),
+    db.eventActivity.count({ where: { eventId, challengeStatus: "ACTIVE", sport: { active: true } } }),
   ]);
   return { registrations, checkedIn, activityRegs, running, completed, pending, activeActivities };
 }

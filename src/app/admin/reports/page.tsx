@@ -10,7 +10,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   if (!event) return <EmptyState title="Create an event first" />;
   const [acts, byDay, walkIns] = await Promise.all([
     db.eventActivity.findMany({
-      where: { eventId: event.id },
+      where: { eventId: event.id, sport: { active: true } },
       orderBy: { sortOrder: "asc" },
       select: {
         id: true,

@@ -20,7 +20,11 @@ export default async function ParticipantsPage({ searchParams }: { searchParams:
   const page = Math.max(1, Number(one(sp.page)) || 1);
   const [list, acts] = await Promise.all([
     listRegistrations(db, actor, { eventId: event.id, q, status, page, pageSize: 20 }),
-    db.eventActivity.findMany({ where: { eventId: event.id }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true } }),
+    db.eventActivity.findMany({
+      where: { eventId: event.id, sport: { active: true } },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
   const href = (p: number) =>
     `/admin/participants?${new URLSearchParams({ event: event.id, q, ...(status ? { status } : {}), page: String(p) })}`;
