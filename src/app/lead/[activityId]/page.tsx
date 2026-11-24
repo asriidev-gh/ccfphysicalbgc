@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ScanLine, Users } from "lucide-react";
+import { ScanLine, User, Users } from "lucide-react";
 import { requirePageRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { AppError } from "@/lib/errors";
@@ -22,8 +22,10 @@ export default async function LeadActivityPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { activityId } = await params;
-  const raw = (await searchParams).mode;
-  const mode = Array.isArray(raw) ? raw[0] : raw;
+  const sp = await searchParams;
+  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const mode = first(sp.mode);
+  const type = first(sp.type) === "group" ? "group" : first(sp.type) === "individual" ? "individual" : null;
   const actor = await requirePageRole("ACTIVITY_LEAD", "ADMIN", "SUPER_ADMIN");
   if (!/^[0-9a-f-]{36}$/i.test(activityId)) notFound();
   let data;
@@ -68,7 +70,35 @@ export default async function LeadActivityPage({
     );
   }
 
+  // Start Challenge on a race sport asks whether this is an Individual or a Group challenge (matches have no groups).
+  if (chosen === "multiple" && !isMatch && !type) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <PageTitle title={data.activity.name} sub="Who is taking this challenge?" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Link
+            href={`/lead/${activityId}?mode=multiple&type=individual`}
+            className="border-line bg-surface hover:border-brand flex min-h-44 flex-col items-center justify-center gap-3 rounded-lg border p-6 text-center"
+          >
+            <User className="text-brand size-10" aria-hidden />
+            <span className="font-display text-2xl font-bold uppercase">Individual</span>
+            <span className="text-muted text-sm">Each runner has their own timer and is ranked on the individual leaderboard.</span>
+          </Link>
+          <Link
+            href={`/lead/${activityId}?mode=multiple&type=group`}
+            className="border-line bg-surface hover:border-brand flex min-h-44 flex-col items-center justify-center gap-3 rounded-lg border p-6 text-center"
+          >
+            <Users className="text-brand size-10" aria-hidden />
+            <span className="font-display text-2xl font-bold uppercase">Group</span>
+            <span className="text-muted text-sm">Create groups of checked-in players. Each group has one timer and is ranked by group time.</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const multi = timed && chosen === "multiple";
+  const groupMode = multi && !isMatch && type === "group";
   const checkinOnly = timed && chosen === "checkin";
   return (
     <div className="mx-auto max-w-4xl">
@@ -79,13 +109,13 @@ export default async function LeadActivityPage({
           <div className="flex flex-wrap items-center gap-4 text-sm font-semibold">
             {timed && (
               <Link href={`/lead/${activityId}`} className="text-muted underline">
-                {multi ? "Start Challenge" : "Check-in"} · change
+                {multi ? (isMatch ? "Start Challenge" : `Start Challenge · ${groupMode ? "Group" : "Individual"}`) : "Check-in"} · change
               </Link>
             )}
           </div>
         }
       />
-      <LeadConsole data={data} mode="booth" multi={multi} checkinOnly={checkinOnly} />
+      <LeadConsole data={data} mode="booth" multi={multi} checkinOnly={checkinOnly} groupMode={groupMode} />
     </div>
   );
 }

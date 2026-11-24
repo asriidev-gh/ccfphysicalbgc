@@ -38,3 +38,44 @@ export async function deleteGroup(db: Db, actor: Actor, groupId: string) {
   await audit(db, { actorId: actor.id, action: "group.delete", entityType: "ActivityGroup", entityId: g.id, previous: { name: g.name } });
   return { deleted: true };
 }
+
+async function loadGroup(db: Db, actor: Actor, groupId: string) {
+  const g = await db.activityGroup.findUnique({ where: { id: groupId }, include: { activity: { select: { challengeStatus: true } } } });
+  if (!g) throw new AppError("NOT_FOUND", "Group not found.");
+  await assertActivityAccess(db, actor, g.activityId);
+  return g;
+}
+
+/** Start the group's single shared timer. Idempotent: a second tap keeps the original start instant. */
+export async function startGroupTimer(db: Db, actor: Actor, groupId: string) {
+  const g = await loadGroup(db, actor, groupId);
+  if (g.activity.challengeStatus !== "ACTIVE") throw new AppError("CONFLICT", "This activity is not active.");
+  if (g.finishedAt) throw new AppError("CONFLICT", "This group already finished. Reset its timer to run it again.");
+  if (g.startedAt) return { startedAt: g.startedAt.toISOString() };
+  const startedAt = new Date();
+  const res = await db.activityGroup.updateMany({ where: { id: g.id, startedAt: null }, data: { startedAt } });
+  if (res.count === 1) await audit(db, { actorId: actor.id, action: "group.start", entityType: "ActivityGroup", entityId: g.id, next: { startedAt } });
+  return { startedAt: startedAt.toISOString() };
+}
+
+/** Stop the group's timer. `stopAtMs` is the lead's tap time on the server clock (clamped to [start, now]). */
+export async function stopGroupTimer(db: Db, actor: Actor, groupId: string, stopAtMs?: number) {
+  const receivedAt = Date.now();
+  const g = await loadGroup(db, actor, groupId);
+  if (!g.startedAt) throw new AppError("CONFLICT", "This group has not started.");
+  if (g.finishedAt) return { elapsedMs: g.elapsedMs };
+  const start = g.startedAt.getTime();
+  const at = Math.min(receivedAt, Math.max(start, stopAtMs ?? receivedAt));
+  const elapsedMs = Math.round(at - start);
+  const res = await db.activityGroup.updateMany({ where: { id: g.id, finishedAt: null }, data: { finishedAt: new Date(at), elapsedMs } });
+  if (res.count === 1) await audit(db, { actorId: actor.id, action: "group.stop", entityType: "ActivityGroup", entityId: g.id, next: { elapsedMs } });
+  return { elapsedMs };
+}
+
+/** Clear the group's timer so it can be run again (audited). */
+export async function resetGroupTimer(db: Db, actor: Actor, groupId: string) {
+  const g = await loadGroup(db, actor, groupId);
+  await db.activityGroup.update({ where: { id: g.id }, data: { startedAt: null, finishedAt: null, elapsedMs: null } });
+  await audit(db, { actorId: actor.id, action: "group.reset", entityType: "ActivityGroup", entityId: g.id, previous: { elapsedMs: g.elapsedMs } });
+  return { reset: true };
+}

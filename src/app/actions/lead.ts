@@ -6,7 +6,7 @@ import { requireActionRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { toResult } from "@/lib/errors";
 import { lookupByReference } from "@/lib/services/lead";
-import { createGroup, deleteGroup } from "@/lib/services/groups";
+import { createGroup, deleteGroup, resetGroupTimer, startGroupTimer, stopGroupTimer } from "@/lib/services/groups";
 import { assertDev, deleteAllParticipants, checkOutAll, deleteAllRecords, deleteParticipant, setParticipantGender } from "@/lib/services/dev-records";
 import {
   cancelAttempt,
@@ -215,4 +215,16 @@ export async function createGroupAction(activityId: string, name: string, activi
 
 export async function deleteGroupAction(groupId: string) {
   return toResult(async () => deleteGroup(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId)));
+}
+
+export async function startGroupAction(groupId: string) {
+  return toResult(async () => startGroupTimer(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId)));
+}
+
+export async function stopGroupAction(groupId: string, stopAtMs?: number) {
+  return toResult(async () => stopGroupTimer(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId), z.number().finite().optional().parse(stopAtMs)));
+}
+
+export async function resetGroupAction(groupId: string) {
+  return toResult(async () => resetGroupTimer(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId)));
 }

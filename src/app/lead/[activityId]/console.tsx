@@ -6,6 +6,9 @@ import { AlertTriangle, Check, Flag, FlagTriangleRight, Loader2, Pencil, Trash2,
 import {
   cancelAttemptAction,
   createGroupAction,
+  resetGroupAction,
+  startGroupAction,
+  stopGroupAction,
   deleteGroupAction,
   checkInAction,
   checkOutAction,
@@ -51,11 +54,14 @@ export function LeadConsole({
   mode,
   multi = false,
   checkinOnly = false,
+  groupMode = false,
 }: {
   data: LeadConsoleData;
   mode: "booth" | "roster";
   multi?: boolean;
   checkinOnly?: boolean;
+  /** Start Challenge · Group: players are put in groups that each run one shared timer. */
+  groupMode?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("ALL");
@@ -112,7 +118,7 @@ export function LeadConsole({
           started while it is ACTIVE.
         </p>
       )}
-      {mode === "booth" && multi && (data.activity.config.template === "MATCH" ? <MatchPanel data={data} /> : <HeatPanel data={data} />)}
+      {mode === "booth" && multi && (data.activity.config.template === "MATCH" ? <MatchPanel data={data} /> : <HeatPanel data={data} groupMode={groupMode} />)}
       {mode === "roster" && timed && (
         <HeatSelectBar
           data={data}
@@ -568,58 +574,105 @@ function MatchPanel({ data }: { data: LeadConsoleData }) {
   );
 }
 
-/** A player's best valid time in ms (lowest across attempts), or null if they have none yet. */
-const bestTime = (r: LeadRow) => {
-  const v = r.attempts.flatMap((a) => (a.result && a.result.status === "VALID" && !a.result.disputed && a.result.value !== null ? [a.result.value] : []));
-  return v.length ? Math.min(...v) : null;
-};
-
-/** Groups ranked by combined time (lowest first). Groups where someone has no valid time yet are listed after, unranked. */
+/** Groups ranked by their one shared timer (lowest time first). Running and not-started groups are listed after, unranked. */
 function GroupsPanel({ data }: { data: LeadConsoleData }) {
   const { run, pending, error } = useAct();
+  const serverTime = useServerClock(data.serverNow);
+  const armedAt = useRef<number | undefined>(undefined);
+  const [stopping, setStopping] = useState<string | null>(null); // freeze the display the instant Stop is confirmed
   if (data.groups.length === 0) return null;
-  const list = data.groups.map((g) => {
-    const members = data.rows.filter((r) => r.groupId === g.id).map((r) => ({ row: r, ms: bestTime(r) }));
-    const complete = members.length > 0 && members.every((m) => m.ms !== null);
-    return { g, members, complete, total: members.reduce((n, m) => n + (m.ms ?? 0), 0) };
-  });
-  list.sort((a, b) => (a.complete === b.complete ? (a.complete ? a.total - b.total : 0) : a.complete ? -1 : 1));
+  const members = (id: string) => data.rows.filter((r) => r.groupId === id);
+  const phase = (g: LeadConsoleData["groups"][number]) => (g.elapsedMs !== null ? 0 : g.startedAt ? 1 : 2);
+  const list = [...data.groups].sort((a, b) => phase(a) - phase(b) || (a.elapsedMs ?? 0) - (b.elapsedMs ?? 0));
+  const active = data.activity.status === "ACTIVE";
   let rank = 0;
   return (
     <div className="space-y-2">
-      <p className="text-muted text-xs tracking-wider uppercase">Groups · ranked by combined time</p>
-      {list.map(({ g, members, complete, total }) => (
-        <details key={g.id} className="border-line rounded-md border" open>
-          <summary className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2">
-            <span className="min-w-0 truncate font-semibold">
-              <span className="text-muted tabular mr-2">{complete ? ++rank : "–"}</span>
-              {g.name}
-              <span className="text-muted text-sm font-normal"> · {members.length} players</span>
-            </span>
-            <span className="tabular font-display text-xl font-bold">{complete ? formatDuration(total) : "In progress"}</span>
-          </summary>
-          <ul className="divide-line border-line divide-y border-t">
-            {members.map(({ row, ms }) => (
-              <li key={row.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                <span className="truncate">{row.name}</span>
-                <span className="tabular">{ms === null ? "—" : formatDuration(ms)}</span>
-              </li>
-            ))}
-            <li className="px-3 py-2">
+      <p className="text-muted text-xs tracking-wider uppercase">Groups · ranked by group time</p>
+      {list.map((g) => {
+        const done = g.elapsedMs !== null;
+        const running = !done && g.startedAt !== null;
+        const people = members(g.id);
+        return (
+          <div key={g.id} className={cn("rounded-md border", running ? "border-brand/40 bg-brand/10" : "border-line")}>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
+              <p className="min-w-0 truncate font-semibold">
+                <span className="text-muted tabular mr-2">{done ? ++rank : "–"}</span>
+                {g.name}
+                <span className="text-muted text-sm font-normal"> · {people.length} players</span>
+              </p>
+              <span className="tabular font-display text-3xl font-bold">
+                {done ? (
+                  formatDuration(g.elapsedMs!)
+                ) : running ? (
+                  <RunningTimer startedAt={g.startedAt!} serverNow={data.serverNow} frozen={stopping === g.id} />
+                ) : (
+                  <span className="text-muted text-base font-normal">Not started</span>
+                )}
+              </span>
+            </div>
+            <ul className="text-muted border-line flex flex-wrap gap-x-4 gap-y-1 border-t px-3 py-2 text-sm">
+              {people.map((r) => (
+                <li key={r.id}>{r.name}</li>
+              ))}
+            </ul>
+            <div className="border-line flex flex-wrap items-center gap-2 border-t px-3 py-2">
+              {!done && !running && (
+                <Button disabled={pending || !active} onClick={() => run(() => startGroupAction(g.id))}>
+                  {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} Start group
+                </Button>
+              )}
+              {running && (
+                <ConfirmAction
+                  disabled={pending || stopping === g.id}
+                  onArm={() => (armedAt.current = serverTime())}
+                  onConfirm={() => {
+                    setStopping(g.id);
+                    run(async () => {
+                      try {
+                        const r = await stopGroupAction(g.id, armedAt.current);
+                        if (!r.ok) setStopping(null);
+                        return r;
+                      } catch (e) {
+                        setStopping(null);
+                        throw e;
+                      }
+                    });
+                  }}
+                  confirmLabel="Yes, stop group"
+                  className="bg-ok hover:bg-ok/85 min-h-12 gap-2 font-bold text-black"
+                >
+                  {stopping === g.id ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Square className="size-5" aria-hidden />}
+                  {stopping === g.id ? "Saving…" : "Stop group"}
+                </ConfirmAction>
+              )}
+              {(done || running) && (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    if (window.confirm(`Reset the timer for "${g.name}"? ${done ? "Its recorded time is discarded." : "The running timer is discarded."}`))
+                      run(() => resetGroupAction(g.id), () => setStopping(null));
+                  }}
+                  className="text-muted text-xs font-semibold hover:underline"
+                >
+                  Reset timer
+                </button>
+              )}
               <button
                 type="button"
                 disabled={pending}
                 onClick={() => {
-                  if (window.confirm(`Delete group "${g.name}"? Players and their times are kept.`)) run(() => deleteGroupAction(g.id));
+                  if (window.confirm(`Delete group "${g.name}"? Players are kept.`)) run(() => deleteGroupAction(g.id));
                 }}
-                className="text-bad text-xs font-semibold hover:underline"
+                className="text-bad ml-auto text-xs font-semibold hover:underline"
               >
                 Delete group
               </button>
-            </li>
-          </ul>
-        </details>
-      ))}
+            </div>
+          </div>
+        );
+      })}
       {error && (
         <p role="alert" className="text-bad text-sm">
           {error}
@@ -630,7 +683,7 @@ function GroupsPanel({ data }: { data: LeadConsoleData }) {
 }
 
 /** Group start for timed sports: one start instant for everyone, then tap each runner as they finish. */
-function HeatPanel({ data }: { data: LeadConsoleData }) {
+function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMode?: boolean }) {
   const { run, pending, error } = useAct();
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [stopping, setStopping] = useState<Set<string>>(new Set());
@@ -646,9 +699,11 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
   );
   const running = data.rows.flatMap((r) => r.attempts.filter((a) => a.status === "RUNNING").map((a) => ({ row: r, attempt: a })));
   const toScore = data.rows.flatMap((r) => r.attempts.filter((a) => a.status === "FINISHED").map((a) => ({ row: r, attempt: a })));
-  const chosen = waiting.filter((r) => picked.has(r.id));
+  // Players already in a group can not be picked (for a new group or an individual start); their group has the timer.
+  const selectable = waiting.filter((r) => !r.groupId);
+  const chosen = selectable.filter((r) => picked.has(r.id));
   const [groupName, setGroupName] = useState("");
-  const ungroupedChosen = chosen.filter((r) => !r.groupId);
+  const ungroupedChosen = chosen;
   const groupNames = new Map(data.groups.map((g) => [g.id, g.name]));
 
   // Completed heats, newest first; inside a heat, ordered by the activity's ranking direction.
@@ -694,7 +749,11 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-display text-lg font-bold uppercase">{/run/i.test(data.activity.name) ? "Start Race" : "Start Challenge"}</p>
-            <p className="text-muted text-xs">Select runners who are checked in. They all start on the same server instant.</p>
+            <p className="text-muted text-xs">
+              {groupMode
+                ? "Tick checked-in players and create a group. Each group runs on one shared timer."
+                : "Select runners who are checked in. They all start on the same server instant."}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {process.env.NODE_ENV !== "production" && waiting.length > 0 && (
@@ -712,14 +771,15 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
                 Check out all
               </Button>
             )}
-            {waiting.length > 0 && (
+            {selectable.length > 0 && (
               <Button
                 variant="secondary"
-                onClick={() => setPicked(chosen.length === waiting.length ? new Set() : new Set(waiting.map((r) => r.id)))}
+                onClick={() => setPicked(chosen.length === selectable.length ? new Set() : new Set(selectable.map((r) => r.id)))}
               >
-                {chosen.length === waiting.length ? "Clear" : "Select all"}
+                {chosen.length === selectable.length ? "Clear" : "Select all"}
               </Button>
             )}
+            {!groupMode && (
             <Button
               disabled={pending || !active || chosen.length === 0}
               onClick={() =>
@@ -732,21 +792,26 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
               {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} {/run/i.test(data.activity.name) ? "Start Race" : "Start Challenge"} (
               {chosen.length})
             </Button>
+            )}
           </div>
         </div>
 
-        {waiting.length === 0 ? (
-          <p className="text-muted text-sm">No one is waiting. Check runners in first (scan their QR or use the roster).</p>
+        {selectable.length === 0 ? (
+          <p className="text-muted text-sm">
+            {waiting.length === 0 ? "No one is waiting. Check runners in first (scan their QR or use the roster)." : "Everyone checked in is already in a group."}
+          </p>
         ) : (
           <ul className="grid gap-2">
-            {waiting.map((r) => (
+            {selectable.map((r) => (
               <li key={r.id}>
-                <label className="border-line bg-surface-2 flex min-h-12 cursor-pointer items-center gap-3 rounded-md border px-3">
+                <label className={cn("border-line bg-surface-2 flex min-h-12 items-center gap-3 rounded-md border px-3", r.groupId ? "cursor-not-allowed opacity-70" : "cursor-pointer")}>
                   <input
                     type="checkbox"
-                    checked={picked.has(r.id)}
+                    checked={picked.has(r.id) && !r.groupId}
+                    disabled={!!r.groupId}
+                    title={r.groupId ? "Already in a group" : undefined}
                     onChange={() => toggle(r.id)}
-                    className="size-5 accent-[var(--brand)]"
+                    className="size-5 accent-[var(--brand)] disabled:opacity-40"
                   />
                   <span className="min-w-0 flex-1 truncate">{r.name}</span>
                   {r.groupId && <Badge tone="accent">{groupNames.get(r.groupId)}</Badge>}
@@ -770,7 +835,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
           </ul>
         )}
 
-        {waiting.length > 0 && (
+        {groupMode && selectable.length > 0 && (
           <div className="border-line flex flex-wrap items-center gap-2 border-t pt-4">
             <Input
               aria-label="Group name"
@@ -797,9 +862,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
             <span className="text-muted text-xs">
               {chosen.length === 0
                 ? "Tick the players above to put in this group."
-                : ungroupedChosen.length < chosen.length
-                  ? `${chosen.length - ungroupedChosen.length} selected player(s) already in a group are skipped.`
-                  : `${ungroupedChosen.length} selected.`}
+                : `${chosen.length} selected.`}
             </span>
           </div>
         )}
@@ -810,9 +873,9 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
           </p>
         )}
 
-        <GroupsPanel data={data} />
+        {groupMode && <GroupsPanel data={data} />}
 
-        {running.length > 0 && (
+        {!groupMode && running.length > 0 && (
           <div>
             <p className="text-muted mb-2 text-xs tracking-wider uppercase">Running · tap a runner when they finish</p>
             <ul className="space-y-2">
@@ -848,7 +911,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
           </div>
         )}
 
-        {heatList.length > 0 && (
+        {!groupMode && heatList.length > 0 && (
           <div className="space-y-2">
             <p className="text-muted text-xs tracking-wider uppercase">{/run/i.test(data.activity.name) ? "Race" : "Challenge"} results</p>
             {heatList.map(([n, items], i) => {
@@ -899,7 +962,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
           </div>
         )}
 
-        {toScore.length > 0 && (
+        {!groupMode && toScore.length > 0 && (
           <div className="space-y-3">
             <p className="text-muted text-xs tracking-wider uppercase">Finished · enter result</p>
             {toScore.map(({ row, attempt }) => (

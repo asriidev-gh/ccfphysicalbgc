@@ -313,12 +313,17 @@ model ActivityRegistration {
 
 // ───────────── Groups ─────────────
 
-/// A named group of players in one activity (e.g. a HYROX relay team). Its score is the sum of its members' times.
+/// A named group of players in one activity (e.g. a HYROX team) with ONE shared stopwatch: the group's time is
+/// finishedAt - startedAt, and groups are ranked by the lowest elapsedMs.
 model ActivityGroup {
-  id         String   @id @default(uuid()) @db.Uuid
-  activityId String   @db.Uuid
+  id         String    @id @default(uuid()) @db.Uuid
+  activityId String    @db.Uuid
   name       String
-  createdAt  DateTime @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  /// Whole milliseconds, set when the group's timer is stopped.
+  elapsedMs  Int?
+  createdAt  DateTime  @default(now())
 
   activity EventActivity        @relation(fields: [activityId], references: [id], onDelete: Cascade)
   members  ActivityGroupMember[]

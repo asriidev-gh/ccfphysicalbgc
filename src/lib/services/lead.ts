@@ -61,7 +61,7 @@ export interface LeadConsoleData {
     config: ScoringConfig;
   };
   rows: LeadRow[];
-  groups: { id: string; name: string }[];
+  groups: { id: string; name: string; startedAt: string | null; finishedAt: string | null; elapsedMs: number | null }[];
   stats: { registered: number; checkedIn: number; waiting: number; inProgress: number; completed: number; awaitingApproval: number };
   serverNow: string;
 }
@@ -126,7 +126,9 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
     },
   });
 
-  const groups = await db.activityGroup.findMany({ where: { activityId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } });
+  const groups = (
+    await db.activityGroup.findMany({ where: { activityId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, startedAt: true, finishedAt: true, elapsedMs: true } })
+  ).map((g) => ({ ...g, startedAt: g.startedAt?.toISOString() ?? null, finishedAt: g.finishedAt?.toISOString() ?? null }));
 
   let awaitingApproval = 0;
   const rows: LeadRow[] = ars.map((r) => ({
