@@ -6,6 +6,7 @@ import { requireActionRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { toResult } from "@/lib/errors";
 import { lookupByReference } from "@/lib/services/lead";
+import { createGroup, deleteGroup } from "@/lib/services/groups";
 import { assertDev, deleteAllParticipants, checkOutAll, deleteAllRecords, deleteParticipant, setParticipantGender } from "@/lib/services/dev-records";
 import {
   cancelAttempt,
@@ -198,4 +199,20 @@ export async function devCheckOutAllAction(activityId: string) {
 
 export async function devDeleteAllParticipantsAction() {
   return toResult(async () => deleteAllParticipants(db, await requireActionRole(...STAFF)));
+}
+
+export async function createGroupAction(activityId: string, name: string, activityRegistrationIds: string[]) {
+  return toResult(async () =>
+    createGroup(
+      db,
+      await requireActionRole(...STAFF),
+      z.string().uuid().parse(activityId),
+      z.string().max(200).parse(name),
+      z.array(z.string().uuid()).max(100).parse(activityRegistrationIds),
+    ),
+  );
+}
+
+export async function deleteGroupAction(groupId: string) {
+  return toResult(async () => deleteGroup(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId)));
 }

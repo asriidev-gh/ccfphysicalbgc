@@ -205,6 +205,7 @@ model EventActivity {
   registrations ActivityRegistration[]
   attempts ChallengeAttempt[]
   scoringVersions ScoringConfigVersion[]
+  groups ActivityGroup[]
 
   @@unique([eventId, slug])
   @@index([eventId, challengeStatus])
@@ -304,9 +305,36 @@ model ActivityRegistration {
   activity    EventActivity   @relation(fields: [activityId], references: [id], onDelete: Cascade)
   attempts    ChallengeAttempt[] @relation("Primary")
   opponentAttempts ChallengeAttempt[] @relation("Opponent")
+  groupMembership ActivityGroupMember?
 
   @@unique([participantId, activityId])
   @@index([activityId, status, queueStatus])
+}
+
+// ───────────── Groups ─────────────
+
+/// A named group of players in one activity (e.g. a HYROX relay team). Its score is the sum of its members' times.
+model ActivityGroup {
+  id         String   @id @default(uuid()) @db.Uuid
+  activityId String   @db.Uuid
+  name       String
+  createdAt  DateTime @default(now())
+
+  activity EventActivity        @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  members  ActivityGroupMember[]
+
+  @@index([activityId])
+}
+
+/// A player belongs to at most one group per activity (activityRegistrationId is already per activity).
+model ActivityGroupMember {
+  groupId                String @db.Uuid
+  activityRegistrationId String @unique @db.Uuid
+
+  group                ActivityGroup        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  activityRegistration ActivityRegistration @relation(fields: [activityRegistrationId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, activityRegistrationId])
 }
 
 // ───────────── Challenges ─────────────

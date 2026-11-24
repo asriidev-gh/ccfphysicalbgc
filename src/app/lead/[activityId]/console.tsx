@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, Flag, FlagTriangleRight, Loader2, Pencil, Trash2, Play, QrCode, Square, UserCheck, Users, X } from "lucide-react";
 import {
   cancelAttemptAction,
+  createGroupAction,
+  deleteGroupAction,
   checkInAction,
   checkOutAction,
   devCheckOutAllAction,
@@ -566,6 +568,67 @@ function MatchPanel({ data }: { data: LeadConsoleData }) {
   );
 }
 
+/** A player's best valid time in ms (lowest across attempts), or null if they have none yet. */
+const bestTime = (r: LeadRow) => {
+  const v = r.attempts.flatMap((a) => (a.result && a.result.status === "VALID" && !a.result.disputed && a.result.value !== null ? [a.result.value] : []));
+  return v.length ? Math.min(...v) : null;
+};
+
+/** Groups ranked by combined time (lowest first). Groups where someone has no valid time yet are listed after, unranked. */
+function GroupsPanel({ data }: { data: LeadConsoleData }) {
+  const { run, pending, error } = useAct();
+  if (data.groups.length === 0) return null;
+  const list = data.groups.map((g) => {
+    const members = data.rows.filter((r) => r.groupId === g.id).map((r) => ({ row: r, ms: bestTime(r) }));
+    const complete = members.length > 0 && members.every((m) => m.ms !== null);
+    return { g, members, complete, total: members.reduce((n, m) => n + (m.ms ?? 0), 0) };
+  });
+  list.sort((a, b) => (a.complete === b.complete ? (a.complete ? a.total - b.total : 0) : a.complete ? -1 : 1));
+  let rank = 0;
+  return (
+    <div className="space-y-2">
+      <p className="text-muted text-xs tracking-wider uppercase">Groups · ranked by combined time</p>
+      {list.map(({ g, members, complete, total }) => (
+        <details key={g.id} className="border-line rounded-md border" open>
+          <summary className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2">
+            <span className="min-w-0 truncate font-semibold">
+              <span className="text-muted tabular mr-2">{complete ? ++rank : "–"}</span>
+              {g.name}
+              <span className="text-muted text-sm font-normal"> · {members.length} players</span>
+            </span>
+            <span className="tabular font-display text-xl font-bold">{complete ? formatDuration(total) : "In progress"}</span>
+          </summary>
+          <ul className="divide-line border-line divide-y border-t">
+            {members.map(({ row, ms }) => (
+              <li key={row.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                <span className="truncate">{row.name}</span>
+                <span className="tabular">{ms === null ? "—" : formatDuration(ms)}</span>
+              </li>
+            ))}
+            <li className="px-3 py-2">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  if (window.confirm(`Delete group "${g.name}"? Players and their times are kept.`)) run(() => deleteGroupAction(g.id));
+                }}
+                className="text-bad text-xs font-semibold hover:underline"
+              >
+                Delete group
+              </button>
+            </li>
+          </ul>
+        </details>
+      ))}
+      {error && (
+        <p role="alert" className="text-bad text-sm">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Group start for timed sports: one start instant for everyone, then tap each runner as they finish. */
 function HeatPanel({ data }: { data: LeadConsoleData }) {
   const { run, pending, error } = useAct();
@@ -584,6 +647,9 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
   const running = data.rows.flatMap((r) => r.attempts.filter((a) => a.status === "RUNNING").map((a) => ({ row: r, attempt: a })));
   const toScore = data.rows.flatMap((r) => r.attempts.filter((a) => a.status === "FINISHED").map((a) => ({ row: r, attempt: a })));
   const chosen = waiting.filter((r) => picked.has(r.id));
+  const [groupName, setGroupName] = useState("");
+  const ungroupedChosen = chosen.filter((r) => !r.groupId);
+  const groupNames = new Map(data.groups.map((g) => [g.id, g.name]));
 
   // Completed heats, newest first; inside a heat, ordered by the activity's ranking direction.
   const dir = data.activity.config.primary.direction === "asc" ? 1 : -1;
@@ -683,6 +749,7 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
                     className="size-5 accent-[var(--brand)]"
                   />
                   <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                  {r.groupId && <Badge tone="accent">{groupNames.get(r.groupId)}</Badge>}
                   {r.attempts.every((a) => a.status === "CANCELLED") && (
                     <button
                       type="button"
@@ -703,11 +770,47 @@ function HeatPanel({ data }: { data: LeadConsoleData }) {
           </ul>
         )}
 
+        {waiting.length > 0 && (
+          <div className="border-line flex flex-wrap items-center gap-2 border-t pt-4">
+            <Input
+              aria-label="Group name"
+              placeholder={`Group ${data.groups.length + 1}`}
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              className="w-48"
+            />
+            <Button
+              variant="secondary"
+              disabled={pending || ungroupedChosen.length < 1}
+              onClick={() =>
+                run(
+                  () => createGroupAction(data.activity.id, groupName.trim() || `Group ${data.groups.length + 1}`, ungroupedChosen.map((r) => r.id)),
+                  () => {
+                    setPicked(new Set());
+                    setGroupName("");
+                  },
+                )
+              }
+            >
+              <Users className="size-5" aria-hidden /> Create group ({ungroupedChosen.length})
+            </Button>
+            <span className="text-muted text-xs">
+              {chosen.length === 0
+                ? "Tick the players above to put in this group."
+                : ungroupedChosen.length < chosen.length
+                  ? `${chosen.length - ungroupedChosen.length} selected player(s) already in a group are skipped.`
+                  : `${ungroupedChosen.length} selected.`}
+            </span>
+          </div>
+        )}
+
         {(error || finisher.error) && (
           <p role="alert" className="text-bad text-sm">
             {error ?? finisher.error}
           </p>
         )}
+
+        <GroupsPanel data={data} />
 
         {running.length > 0 && (
           <div>

@@ -39,6 +39,8 @@ export interface LeadRow {
   photoUrl: string | null;
   queue: "NOT_ARRIVED" | "WAITING" | "IN_PROGRESS" | "DONE" | "WITHDRAWN";
   participantStatus: string;
+  /** The group this player belongs to in this activity, if any. */
+  groupId: string | null;
   attempts: LeadAttempt[];
 }
 
@@ -59,6 +61,7 @@ export interface LeadConsoleData {
     config: ScoringConfig;
   };
   rows: LeadRow[];
+  groups: { id: string; name: string }[];
   stats: { registered: number; checkedIn: number; waiting: number; inProgress: number; completed: number; awaitingApproval: number };
   serverNow: string;
 }
@@ -84,6 +87,7 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
     select: {
       id: true,
       queueStatus: true,
+      groupMembership: { select: { groupId: true } },
       participant: {
         select: {
           fullName: true,
@@ -122,6 +126,8 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
     },
   });
 
+  const groups = await db.activityGroup.findMany({ where: { activityId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } });
+
   let awaitingApproval = 0;
   const rows: LeadRow[] = ars.map((r) => ({
     id: r.id,
@@ -134,6 +140,7 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
         ? "WAITING"
         : r.queueStatus,
     participantStatus: r.participant.status,
+    groupId: r.groupMembership?.groupId ?? null,
     attempts: r.attempts.map((t) => {
       const res = t.results[0];
       if (res?.approvalStatus === "PENDING") awaitingApproval += 1;
@@ -184,6 +191,7 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
       config,
     },
     rows,
+    groups,
     stats: {
       registered: rows.length,
       checkedIn: rows.filter((r) => r.queue !== "NOT_ARRIVED").length,
