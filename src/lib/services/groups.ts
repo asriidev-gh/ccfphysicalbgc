@@ -2,6 +2,7 @@ import type { Db } from "@/lib/db";
 import { assertActivityAccess, type Actor } from "@/lib/auth/policy";
 import { AppError } from "@/lib/errors";
 import { audit } from "./audit";
+import { effectiveTap } from "./challenge";
 
 /** Create a named group from checked-in players. A player can be in only one group per activity. */
 export async function createGroup(db: Db, actor: Actor, activityId: string, name: string, activityRegistrationIds: string[]) {
@@ -47,12 +48,13 @@ async function loadGroup(db: Db, actor: Actor, groupId: string) {
 }
 
 /** Start the group's single shared timer. Idempotent: a second tap keeps the original start instant. */
-export async function startGroupTimer(db: Db, actor: Actor, groupId: string) {
+export async function startGroupTimer(db: Db, actor: Actor, groupId: string, startAtMs?: number) {
+  const receivedAt = new Date();
   const g = await loadGroup(db, actor, groupId);
   if (g.activity.challengeStatus !== "ACTIVE") throw new AppError("CONFLICT", "This activity is not active.");
   if (g.finishedAt) throw new AppError("CONFLICT", "This group already finished. Reset its timer to run it again.");
   if (g.startedAt) return { startedAt: g.startedAt.toISOString() };
-  const startedAt = new Date();
+  const startedAt = effectiveTap(receivedAt, startAtMs);
   const res = await db.activityGroup.updateMany({ where: { id: g.id, startedAt: null }, data: { startedAt } });
   if (res.count === 1) await audit(db, { actorId: actor.id, action: "group.start", entityType: "ActivityGroup", entityId: g.id, next: { startedAt } });
   return { startedAt: startedAt.toISOString() };

@@ -21,7 +21,7 @@ async function main() {
     console.log(`Created database ${dbName}`);
   }
   await c.end();
-  execSync("npx prisma migrate deploy", { stdio: "inherit", env: { ...process.env, DATABASE_URL: url } });
+  execSync("npx prisma migrate deploy", { stdio: "inherit", env: { ...process.env, DATABASE_URL: url, DIRECT_URL: url } }); // prisma.config.ts prefers DIRECT_URL
 }
 main().catch((e) => {
   console.error(e);

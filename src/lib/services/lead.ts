@@ -56,6 +56,8 @@ export interface LeadConsoleData {
     /** Multi-station runs: ordered stations (key + label); empty for other templates. */
     stations: { key: string; label: string }[];
     maxAttempts: number;
+    /** Group challenges are offered for HYROX only. */
+    allowGroups: boolean;
     requireApproval: boolean;
     independentApproval: boolean;
     config: ScoringConfig;
@@ -75,13 +77,8 @@ export async function listMyActivities(db: Db, actor: Actor) {
   });
 }
 
-export async function getLeadConsole(db: Db, actor: Actor, activityId: string): Promise<LeadConsoleData> {
-  await assertActivityAccess(db, actor, activityId);
-  const a = await db.eventActivity.findUnique({ where: { id: activityId } });
-  if (!a) throw new AppError("NOT_FOUND", "Activity not found.");
-  const config = loadConfig(a.scoringConfig);
-
-  const ars = await db.activityRegistration.findMany({
+function findEntrants(db: Db, activityId: string) {
+  return db.activityRegistration.findMany({
     where: { activityId, status: "CONFIRMED" },
     orderBy: { participant: { fullName: "asc" } },
     select: {
@@ -93,7 +90,7 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
           fullName: true,
           status: true,
           photoUrl: true,
-          registrations: { where: { eventId: a.eventId }, select: { code: true }, take: 1 },
+          registrations: { select: { code: true, eventId: true } },
         },
       },
       attempts: {
@@ -125,16 +122,27 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
       },
     },
   });
+}
 
-  const groups = (
-    await db.activityGroup.findMany({ where: { activityId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, startedAt: true, finishedAt: true, elapsedMs: true } })
-  ).map((g) => ({ ...g, startedAt: g.startedAt?.toISOString() ?? null, finishedAt: g.finishedAt?.toISOString() ?? null }));
+export async function getLeadConsole(db: Db, actor: Actor, activityId: string): Promise<LeadConsoleData> {
+  await assertActivityAccess(db, actor, activityId);
+  // The participant list needs the activity's event id; it is read through the relation so all three run together.
+  const [a, ars, groupRows] = await Promise.all([
+    db.eventActivity.findUnique({ where: { id: activityId }, include: { sport: { select: { slug: true } } } }),
+    findEntrants(db, activityId),
+    db.activityGroup.findMany({ where: { activityId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, startedAt: true, finishedAt: true, elapsedMs: true } }),
+  ]);
+  if (!a) throw new AppError("NOT_FOUND", "Activity not found.");
+  const config = loadConfig(a.scoringConfig);
+  // Other sports ignore any groups, so their members can still be picked for an individual run.
+  const allowGroups = a.sport.slug.startsWith("hyrox");
+  const groups = (allowGroups ? groupRows : []).map((g) => ({ ...g, startedAt: g.startedAt?.toISOString() ?? null, finishedAt: g.finishedAt?.toISOString() ?? null }));
 
   let awaitingApproval = 0;
   const rows: LeadRow[] = ars.map((r) => ({
     id: r.id,
     name: r.participant.fullName,
-    code: r.participant.registrations[0]?.code ?? "",
+    code: r.participant.registrations.find((x) => x.eventId === a.eventId)?.code ?? "",
     photoUrl: r.participant.photoUrl,
     // A stale IN_PROGRESS (no running or finished attempt behind it) is really just waiting; lets staff start again.
     queue:
@@ -142,7 +150,7 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
         ? "WAITING"
         : r.queueStatus,
     participantStatus: r.participant.status,
-    groupId: r.groupMembership?.groupId ?? null,
+    groupId: allowGroups ? (r.groupMembership?.groupId ?? null) : null,
     attempts: r.attempts.map((t) => {
       const res = t.results[0];
       if (res?.approvalStatus === "PENDING") awaitingApproval += 1;
@@ -188,6 +196,7 @@ export async function getLeadConsole(db: Db, actor: Actor, activityId: string): 
           ? (config.params.stations ?? []).map((st) => ({ key: st.key, label: config.fields.find((fl) => fl.key === st.key)?.label || st.label }))
           : [],
       maxAttempts: config.attemptPolicy.maxAttempts,
+      allowGroups,
       requireApproval: a.requireApproval,
       independentApproval: a.independentApproval,
       config,

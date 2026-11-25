@@ -31,6 +31,9 @@ import {
 // Staff roles only. Per-activity assignment is enforced again inside each service call.
 const STAFF = ["SUPER_ADMIN", "ADMIN", "ACTIVITY_LEAD"] as const;
 
+/** A tap time on the server clock (the service clamps it). */
+const tapTimeSchema = z.number().finite().optional();
+
 export async function checkInAction(activityRegistrationId: string) {
   return toResult(async () => checkIn(db, await requireActionRole(...STAFF), z.string().uuid().parse(activityRegistrationId)));
 }
@@ -39,12 +42,14 @@ export async function checkOutAction(activityRegistrationId: string) {
   return toResult(async () => checkOut(db, await requireActionRole(...STAFF), z.string().uuid().parse(activityRegistrationId)));
 }
 
-export async function startAction(activityRegistrationId: string, opponentRegistrationId?: string) {
+export async function startAction(activityRegistrationId: string, opponentRegistrationId?: string, startAtMs?: number, attemptId?: string) {
   return toResult(async () => {
     const actor = await requireActionRole(...STAFF);
     return startAttempt(db, actor, {
       activityRegistrationId: z.string().uuid().parse(activityRegistrationId),
       opponentRegistrationId: opponentRegistrationId ? z.string().uuid().parse(opponentRegistrationId) : undefined,
+      startAtMs: tapTimeSchema.parse(startAtMs),
+      attemptId: z.string().uuid().optional().parse(attemptId),
     });
   });
 }
@@ -60,13 +65,14 @@ export async function withdrawAction(activityRegistrationId: string, fd: FormDat
   );
 }
 
-export async function startHeatAction(activityRegistrationIds: string[]) {
-  return toResult(async () => startHeat(db, await requireActionRole(...STAFF), activityRegistrationIds));
+export async function startHeatAction(activityRegistrationIds: string[], startAtMs?: number, attemptIds?: Record<string, string>) {
+  return toResult(async () =>
+    startHeat(db, await requireActionRole(...STAFF), activityRegistrationIds, tapTimeSchema.parse(startAtMs), attemptIds),
+  );
 }
 
 const reasonSchema = z.string().max(300).optional();
 
-const stopAtSchema = z.number().finite().optional();
 
 export async function finishRunnerAction(attemptId: string, overrideReason?: string, stopAtMs?: number) {
   return toResult(async () =>
@@ -75,7 +81,7 @@ export async function finishRunnerAction(attemptId: string, overrideReason?: str
       await requireActionRole(...STAFF),
       z.string().uuid().parse(attemptId),
       reasonSchema.parse(overrideReason),
-      stopAtSchema.parse(stopAtMs),
+      tapTimeSchema.parse(stopAtMs),
     ),
   );
 }
@@ -88,7 +94,7 @@ export async function finishAction(attemptId: string, overrideReason?: string, s
       z.string().uuid().parse(attemptId),
       reasonSchema.parse(overrideReason),
       undefined,
-      stopAtSchema.parse(stopAtMs),
+      tapTimeSchema.parse(stopAtMs),
     ),
   );
 }
@@ -129,7 +135,7 @@ export async function disputeAction(resultId: string, fd: FormData) {
 
 export async function correctAction(
   resultId: string,
-  payload: { raw: Record<string, unknown>; status: "VALID" | "INCOMPLETE" | "DISQUALIFIED" | "WITHDRAWN"; reason?: string },
+  payload: { raw: Record<string, unknown>; status: "VALID" | "INCOMPLETE" | "DISQUALIFIED" | "WITHDRAWN"; reason?: string; elapsedMs?: number },
 ) {
   return toResult(async () => {
     const r = await correctResult(db, await requireActionRole(...STAFF), z.string().uuid().parse(resultId), payload);
@@ -166,7 +172,7 @@ export async function startStationAction(attemptId: string) {
 
 export async function stopStationAction(attemptId: string, stopAtMs?: number) {
   return toResult(async () =>
-    stopStation(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId), stopAtSchema.parse(stopAtMs)),
+    stopStation(db, await requireActionRole(...STAFF), z.string().uuid().parse(attemptId), tapTimeSchema.parse(stopAtMs)),
   );
 }
 
@@ -217,12 +223,12 @@ export async function deleteGroupAction(groupId: string) {
   return toResult(async () => deleteGroup(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId)));
 }
 
-export async function startGroupAction(groupId: string) {
-  return toResult(async () => startGroupTimer(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId)));
+export async function startGroupAction(groupId: string, startAtMs?: number) {
+  return toResult(async () => startGroupTimer(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId), tapTimeSchema.parse(startAtMs)));
 }
 
 export async function stopGroupAction(groupId: string, stopAtMs?: number) {
-  return toResult(async () => stopGroupTimer(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId), z.number().finite().optional().parse(stopAtMs)));
+  return toResult(async () => stopGroupTimer(db, await requireActionRole(...STAFF), z.string().uuid().parse(groupId), tapTimeSchema.parse(stopAtMs)));
 }
 
 export async function resetGroupAction(groupId: string) {

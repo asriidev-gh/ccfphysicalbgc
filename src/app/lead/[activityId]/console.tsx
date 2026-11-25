@@ -30,9 +30,9 @@ import {
 } from "@/app/actions/lead";
 import { ActionForm } from "@/components/action-form";
 import { QrScanner } from "./scanner";
-import { RunningTimer } from "@/components/timer";
+import { RunningTimer, serverOffset, syncClock } from "@/components/timer";
 import { Badge, Button, Card, CardBody, Input, Select, Stat } from "@/components/ui";
-import { calculate, formatDuration, ScoringError } from "@/lib/scoring/engine";
+import { parseDuration, calculate, formatDuration, ScoringError } from "@/lib/scoring/engine";
 import type { ActionResult } from "@/lib/errors";
 import type { LeadAttempt, LeadConsoleData, LeadRow } from "@/lib/services/lead";
 import { photoThumb } from "@/lib/photo-url";
@@ -63,6 +63,7 @@ export function LeadConsole({
   /** Start Challenge · Group: players are put in groups that each run one shared timer. */
   groupMode?: boolean;
 }) {
+  useEffect(() => void syncClock(), []);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("ALL");
   const rows = useMemo(
@@ -234,6 +235,7 @@ function HeatSelectBar({
   onPicked: (s: Set<string>) => void;
 }) {
   const { run, pending, error } = useAct();
+  const serverTime = useServerClock(data.serverNow);
   const ids = data.rows.filter((r) => picked.has(r.id) && heatEligible(r, data)).map((r) => r.id);
   const allVisible = visible.length > 0 && visible.every((r) => picked.has(r.id));
   if (!selecting)
@@ -259,7 +261,10 @@ function HeatSelectBar({
           </Button>
           <Button
             disabled={pending || data.activity.status !== "ACTIVE" || ids.length === 0}
-            onClick={() => run(() => startHeatAction(ids), onStop)}
+            onClick={() => {
+              const tappedAt = serverTime();
+              run(() => startHeatAction(ids, tappedAt), onStop);
+            }}
           >
             {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} {/run/i.test(data.activity.name) ? "Start Race" : "Start Challenge"} (
             {ids.length})
@@ -291,7 +296,7 @@ function Avatar({ row, size = 48, className }: { row: LeadRow; size?: number; cl
         className={cn("shrink-0 rounded-full object-cover", className)}
       />
     );
-  const parts = row.name.trim().split(/s+/).filter(Boolean);
+  const parts = row.name.trim().split(/\s+/).filter(Boolean);
   const initials = (parts.length < 2 ? (parts[0] ?? "?").slice(0, 2) : `${parts[0][0]}${parts[parts.length - 1][0]}`).toUpperCase();
   return (
     <span
@@ -319,15 +324,18 @@ function ParticipantCard({
   checkinOnly?: boolean;
 }) {
   const { run, pending, error } = useAct();
+  const serverTime = useServerClock(data.serverNow);
   const [opponent, setOpponent] = useState("");
-  // Optimistic UI: show the timer the instant Start/Stop is clicked instead of after the server round trip.
-  // The official time is still the server's; these only drive what the lead sees while waiting.
-  const [optStart, setOptStart] = useState<{ at: string; n: number } | null>(null);
+  // Optimistic UI: the run appears the instant Start is tapped, with an id made here, so Stop works at once.
+  // Server Actions are sent one at a time, so an early Stop reaches the server after the Start.
+  const [optStart, setOptStart] = useState<{ id: string; at: string } | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const isMatch = data.activity.config.template === "MATCH";
   const used = row.attempts.filter((a) => a.status !== "CANCELLED").length;
   const remaining = used < data.activity.maxAttempts;
-  const running = row.attempts.find((a) => a.status === "RUNNING");
+  const unsaved = optStart && !row.attempts.some((a) => a.id === optStart.id) ? optStart : null;
+  const running =
+    row.attempts.find((a) => a.status === "RUNNING") ?? (unsaved ? unsavedAttempt(unsaved.id, unsaved.at, row.attempts.length + 1) : undefined);
   const finished = row.attempts.find((a) => a.status === "FINISHED");
   const canStart =
     !checkinOnly &&
@@ -414,10 +422,12 @@ function ParticipantCard({
                 <Button
                   disabled={pending || (isMatch && !opponent)}
                   onClick={() => {
-                    setOptStart({ at: new Date().toISOString(), n: row.attempts.length });
+                    const tappedAt = serverTime();
+                    const attemptId = newId();
+                    setOptStart({ id: attemptId, at: new Date(tappedAt).toISOString() });
                     run(async () => {
                       try {
-                        const r = await startAction(row.id, isMatch ? opponent : undefined);
+                        const r = await startAction(row.id, isMatch ? opponent : undefined, tappedAt, attemptId);
                         if (!r.ok) setOptStart(null);
                         return r;
                       } catch (e) {
@@ -441,18 +451,6 @@ function ParticipantCard({
           </p>
         )}
 
-        {!running && !finished && optStart && optStart.n === row.attempts.length && !error && (
-          <div className="border-brand/40 bg-brand/10 mt-4 rounded-md border p-4">
-            <p className="text-muted text-xs tracking-wider uppercase">Starting…</p>
-            <RunningTimer startedAt={optStart.at} serverNow={optStart.at} className="tabular font-display block text-5xl font-bold" />
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button disabled>
-                <Square className="size-5" aria-hidden /> Stop &amp; score
-              </Button>
-            </div>
-          </div>
-        )}
-
         {running && (
           <div className="border-brand/40 bg-brand/10 mt-4 rounded-md border p-4">
             <p className="text-muted text-xs tracking-wider uppercase">
@@ -471,7 +469,7 @@ function ParticipantCard({
             <RunControls
               attempt={running}
               data={data}
-              busy={pending || stoppingId === running.id}
+              busy={stoppingId === running.id}
               finishLabel="Stop & score"
               onFinish={(reason, stopAtMs) => stopNow(running.id, reason, stopAtMs)}
             />
@@ -578,8 +576,10 @@ function MatchPanel({ data }: { data: LeadConsoleData }) {
 function GroupsPanel({ data }: { data: LeadConsoleData }) {
   const { run, pending, error } = useAct();
   const serverTime = useServerClock(data.serverNow);
-  const armedAt = useRef<number | undefined>(undefined);
-  const [stopping, setStopping] = useState<string | null>(null); // freeze the display the instant Stop is confirmed
+  const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set()); // freeze the display the instant Stop is tapped
+  const [starting, setStarting] = useState<ReadonlyMap<string, string>>(new Map()); // show the timer the instant Start is tapped
+  const unfreeze = (id: string) => setStopping((s) => new Set([...s].filter((x) => x !== id)));
+  const forgetStart = (id: string) => setStarting((m) => new Map([...m].filter(([x]) => x !== id)));
   if (data.groups.length === 0) return null;
   const members = (id: string) => data.rows.filter((r) => r.groupId === id);
   const phase = (g: LeadConsoleData["groups"][number]) => (g.elapsedMs !== null ? 0 : g.startedAt ? 1 : 2);
@@ -591,7 +591,8 @@ function GroupsPanel({ data }: { data: LeadConsoleData }) {
       <p className="text-muted text-xs tracking-wider uppercase">Groups · ranked by group time</p>
       {list.map((g) => {
         const done = g.elapsedMs !== null;
-        const running = !done && g.startedAt !== null;
+        const optimisticAt = !done && !g.startedAt ? (starting.get(g.id) ?? null) : null;
+        const running = !done && (g.startedAt !== null || optimisticAt !== null);
         const people = members(g.id);
         return (
           <div key={g.id} className={cn("rounded-md border", running ? "border-brand/40 bg-brand/10" : "border-line")}>
@@ -605,7 +606,7 @@ function GroupsPanel({ data }: { data: LeadConsoleData }) {
                 {done ? (
                   formatDuration(g.elapsedMs!)
                 ) : running ? (
-                  <RunningTimer startedAt={g.startedAt!} serverNow={data.serverNow} frozen={stopping === g.id} />
+                  <RunningTimer startedAt={g.startedAt ?? optimisticAt!} serverNow={data.serverNow} frozen={stopping.has(g.id)} />
                 ) : (
                   <span className="text-muted text-base font-normal">Not started</span>
                 )}
@@ -618,33 +619,48 @@ function GroupsPanel({ data }: { data: LeadConsoleData }) {
             </ul>
             <div className="border-line flex flex-wrap items-center gap-2 border-t px-3 py-2">
               {!done && !running && (
-                <Button disabled={pending || !active} onClick={() => run(() => startGroupAction(g.id))}>
-                  {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} Start group
-                </Button>
-              )}
-              {running && (
-                <ConfirmAction
-                  disabled={pending || stopping === g.id}
-                  onArm={() => (armedAt.current = serverTime())}
-                  onConfirm={() => {
-                    setStopping(g.id);
+                <Button
+                  disabled={!active}
+                  onClick={() => {
+                    const tappedAt = serverTime();
+                    setStarting((m) => new Map(m).set(g.id, new Date(tappedAt).toISOString()));
                     run(async () => {
                       try {
-                        const r = await stopGroupAction(g.id, armedAt.current);
-                        if (!r.ok) setStopping(null);
+                        const r = await startGroupAction(g.id, tappedAt);
+                        if (!r.ok) forgetStart(g.id);
                         return r;
                       } catch (e) {
-                        setStopping(null);
+                        forgetStart(g.id);
                         throw e;
                       }
                     });
                   }}
-                  confirmLabel="Yes, stop group"
+                >
+                  <Play className="size-5" aria-hidden /> Start group
+                </Button>
+              )}
+              {running && (
+                <Button
+                  disabled={stopping.has(g.id)}
+                  onClick={() => {
+                    const tappedAt = serverTime();
+                    setStopping((s) => new Set(s).add(g.id));
+                    run(async () => {
+                      try {
+                        const r = await stopGroupAction(g.id, tappedAt);
+                        if (!r.ok) unfreeze(g.id);
+                        return r;
+                      } catch (e) {
+                        unfreeze(g.id);
+                        throw e;
+                      }
+                    });
+                  }}
                   className="bg-ok hover:bg-ok/85 min-h-12 gap-2 font-bold text-black"
                 >
-                  {stopping === g.id ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Square className="size-5" aria-hidden />}
-                  {stopping === g.id ? "Saving…" : "Stop group"}
-                </ConfirmAction>
+                  {stopping.has(g.id) ? <Check className="size-5" aria-hidden /> : <Square className="size-5" aria-hidden />}
+                  {stopping.has(g.id) ? "Finished" : "Stop group"}
+                </Button>
               )}
               {(done || running) && (
                 <button
@@ -652,7 +668,13 @@ function GroupsPanel({ data }: { data: LeadConsoleData }) {
                   disabled={pending}
                   onClick={() => {
                     if (window.confirm(`Reset the timer for "${g.name}"? ${done ? "Its recorded time is discarded." : "The running timer is discarded."}`))
-                      run(() => resetGroupAction(g.id), () => setStopping(null));
+                      run(
+                        () => resetGroupAction(g.id),
+                        () => {
+                          unfreeze(g.id);
+                          forgetStart(g.id);
+                        },
+                      );
                   }}
                   className="text-muted text-xs font-semibold hover:underline"
                 >
@@ -685,24 +707,53 @@ function GroupsPanel({ data }: { data: LeadConsoleData }) {
 /** Group start for timed sports: one start instant for everyone, then tap each runner as they finish. */
 function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMode?: boolean }) {
   const { run, pending, error } = useAct();
+  const serverTime = useServerClock(data.serverNow);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [stopping, setStopping] = useState<Set<string>>(new Set());
-  // Separate from the start-heat action so finishing one runner never disables the others (or the Start button).
-  const finisher = useAct();
+  // Finishes tapped on this device and still being saved: the runner leaves the Running list at the tap.
+  const [finishing, setFinishing] = useState<
+    { attemptId: string; name: string; ms: number; error?: string; save: () => Promise<ActionResult<unknown>> }[]
+  >([]);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const router = useRouter();
+  // Runs started on this device that the server data does not include yet. The id is made here, so the run is fully
+  // usable at once: Server Actions are sent one at a time, so a stop tapped early reaches the server after the start.
+  const [local, setLocal] = useState<{ rowId: string; attemptId: string; at: string; tappedAt: number; failed?: boolean }[]>([]);
+  const saved = new Set(data.rows.flatMap((r) => r.attempts.map((a) => a.id)));
+  const unsaved = local.filter((l) => !saved.has(l.attemptId));
+  if (unsaved.length !== local.length) setLocal(unsaved); // the server data has caught up
+  const closed = new Set(data.rows.flatMap((r) => r.attempts.filter((a) => a.status !== "RUNNING").map((a) => a.id)));
+  const saving = finishing.filter((f) => !closed.has(f.attemptId));
+  if (saving.length !== finishing.length) setFinishing(saving); // the server data has caught up
   const active = data.activity.status === "ACTIVE";
+  const failedStarts = unsaved.filter((l) => l.failed);
+  const unsavedWork = unsaved.length > 0 || saving.length > 0;
+  // Reloading or closing the tab would drop anything not saved yet, so the browser asks first (only then).
+  useEffect(() => {
+    if (!unsavedWork) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsavedWork]);
 
   const waiting = data.rows.filter(
     (r) =>
       r.queue === "WAITING" &&
       r.participantStatus === "ACTIVE" &&
-      r.attempts.filter((a) => a.status !== "CANCELLED").length < data.activity.maxAttempts,
+      r.attempts.filter((a) => a.status !== "CANCELLED").length < data.activity.maxAttempts &&
+      !unsaved.some((l) => l.rowId === r.id),
   );
-  const running = data.rows.flatMap((r) => r.attempts.filter((a) => a.status === "RUNNING").map((a) => ({ row: r, attempt: a })));
+  const running = data.rows.flatMap((r) => [
+    ...r.attempts.filter((a) => a.status === "RUNNING").map((a) => ({ row: r, attempt: a })),
+    ...unsaved
+      .filter((l) => l.rowId === r.id)
+      .map((l) => ({ row: r, attempt: unsavedAttempt(l.attemptId, l.at, r.attempts.length + 1) })),
+  ]).filter(({ attempt }) => !saving.some((f) => f.attemptId === attempt.id));
   const toScore = data.rows.flatMap((r) => r.attempts.filter((a) => a.status === "FINISHED").map((a) => ({ row: r, attempt: a })));
   // Players already in a group can not be picked (for a new group or an individual start); their group has the timer.
   const selectable = waiting.filter((r) => !r.groupId);
   const chosen = selectable.filter((r) => picked.has(r.id));
   const [groupName, setGroupName] = useState("");
+  const [editing, setEditing] = useState<string | null>(null); // attempt whose result is open for editing
   const ungroupedChosen = chosen;
   const groupNames = new Map(data.groups.map((g) => [g.id, g.name]));
 
@@ -723,24 +774,49 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
     });
 
   const durationMs = countdownMs(data);
-  const doFinish = (id: string, reason?: string, stopAtMs?: number) => {
-    setStopping((s) => new Set(s).add(id)); // freeze this runner's timer immediately
-    const release = () =>
-      setStopping((s) => {
-        const n = new Set(s);
-        n.delete(id);
-        return n;
-      });
-    finisher.run(async () => {
-      try {
-        const r = await finishRunnerAction(id, reason, stopAtMs);
-        if (!r.ok) release();
-        return r;
-      } catch (e) {
-        release();
-        throw e;
+  /** Save a start in the background. A dropped connection keeps the runners and their start time for a retry. */
+  const saveStart = async (started: typeof local) => {
+    const ids = new Set(started.map((s) => s.attemptId));
+    setSaveError(null);
+    setLocal((l) => l.map((x) => (ids.has(x.attemptId) ? { ...x, failed: false } : x)));
+    try {
+      const r = await startHeatAction(
+        started.map((s) => s.rowId),
+        started[0].tappedAt,
+        Object.fromEntries(started.map((s) => [s.rowId, s.attemptId])),
+      );
+      if (!r.ok) {
+        setLocal((l) => l.filter((x) => !ids.has(x.attemptId)));
+        setSaveError(`Start was not saved: ${r.error}`);
       }
-    });
+      router.refresh();
+    } catch {
+      setLocal((l) => l.map((x) => (ids.has(x.attemptId) ? { ...x, failed: true } : x)));
+    }
+  };
+  const startRace = () => {
+    const tappedAt = serverTime();
+    const at = new Date(tappedAt).toISOString();
+    const started = chosen.map((r) => ({ rowId: r.id, attemptId: newId(), at, tappedAt }));
+    setLocal((l) => [...l, ...started]);
+    setPicked(new Set());
+    void saveStart(started);
+  };
+  /** Save a finish in the background. If it fails, the tapped time stays on screen with Retry. */
+  const saveFinish = async (attemptId: string, save: () => Promise<ActionResult<unknown>>) => {
+    const mark = (why?: string) => setFinishing((f) => f.map((x) => (x.attemptId === attemptId ? { ...x, error: why } : x)));
+    mark(undefined);
+    try {
+      const r = await save();
+      if (!r.ok) mark(r.error);
+    } catch {
+      mark("Network error. Check your connection.");
+    }
+    router.refresh(); // also on failure: the server may have saved part of it
+  };
+  const finishInBackground = (attemptId: string, name: string, ms: number, save: () => Promise<ActionResult<unknown>>) => {
+    setFinishing((f) => [...f.filter((x) => x.attemptId !== attemptId), { attemptId, name, ms: Math.max(0, Math.round(ms)), save }]);
+    void saveFinish(attemptId, save);
   };
 
   return (
@@ -780,16 +856,8 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
               </Button>
             )}
             {!groupMode && (
-            <Button
-              disabled={pending || !active || chosen.length === 0}
-              onClick={() =>
-                run(
-                  () => startHeatAction(chosen.map((r) => r.id)),
-                  () => setPicked(new Set()),
-                )
-              }
-            >
-              {pending ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <Play className="size-5" aria-hidden />} {/run/i.test(data.activity.name) ? "Start Race" : "Start Challenge"} (
+            <Button disabled={!active || chosen.length === 0} onClick={startRace}>
+              <Play className="size-5" aria-hidden /> {/run/i.test(data.activity.name) ? "Start Race" : "Start Challenge"} (
               {chosen.length})
             </Button>
             )}
@@ -867,13 +935,32 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
           </div>
         )}
 
-        {(error || finisher.error) && (
+        {(error || saveError) && (
           <p role="alert" className="text-bad text-sm">
-            {error ?? finisher.error}
+            {error ?? saveError}
           </p>
         )}
 
         {groupMode && <GroupsPanel data={data} />}
+
+        {failedStarts.length > 0 && (
+          <div role="alert" className="border-bad/50 flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm">
+            <span className="text-bad flex-1">
+              Start not saved for {failedStarts.length} runner{failedStarts.length === 1 ? "" : "s"} (network). The timers keep their start time.
+            </span>
+            <Button
+              onClick={() => {
+                // One call per original start, so each keeps its own start instant.
+                for (const at of new Set(failedStarts.map((s) => s.tappedAt))) void saveStart(failedStarts.filter((s) => s.tappedAt === at));
+              }}
+            >
+              Retry
+            </Button>
+            <Button variant="ghost" onClick={() => setLocal((l) => l.filter((x) => !x.failed))}>
+              Discard
+            </Button>
+          </div>
+        )}
 
         {!groupMode && running.length > 0 && (
           <div>
@@ -888,18 +975,28 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
                       <RunningTimer
                         startedAt={attempt.startedAt}
                         serverNow={data.serverNow}
-                        frozen={stopping.has(attempt.id)}
                         durationMs={durationMs}
-                        onTimeUp={() => doFinish(attempt.id, undefined, new Date(attempt.startedAt).getTime() + (durationMs ?? 0))}
+                        onTimeUp={() =>
+                          finishInBackground(attempt.id, row.name, durationMs ?? 0, () =>
+                            finishRunnerAction(attempt.id, undefined, new Date(attempt.startedAt).getTime() + (durationMs ?? 0)),
+                          )
+                        }
                         className="tabular font-display text-3xl font-bold"
                       />
                     )}
                     <RunControls
                       attempt={attempt}
                       data={data}
-                      busy={stopping.has(attempt.id)}
+                      busy={false}
                       finishLabel="Finish"
-                      onFinish={(reason, stopAtMs) => doFinish(attempt.id, reason, stopAtMs)}
+                      onFinish={(reason, stopAtMs) =>
+                        finishInBackground(attempt.id, row.name, (stopAtMs ?? serverTime()) - Date.parse(attempt.startedAt), () =>
+                          finishRunnerAction(attempt.id, reason, stopAtMs),
+                        )
+                      }
+                      onLastStationStop={(tappedAt, totalMs) =>
+                        finishInBackground(attempt.id, row.name, totalMs, () => stopStationAction(attempt.id, tappedAt))
+                      }
                     />
                     <div className="mt-2">
                       <CancelAttempt attemptId={attempt.id} />
@@ -909,6 +1006,34 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
               ))}
             </ul>
           </div>
+        )}
+
+        {!groupMode && saving.length > 0 && (
+          <ul className="border-line divide-line divide-y rounded-md border" aria-label="Finished, not yet saved">
+            {saving.map((f) => (
+              <li key={f.attemptId} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
+                <p className="flex min-w-0 items-center gap-2">
+                  {f.error ? (
+                    <AlertTriangle className="text-bad size-4 shrink-0" aria-hidden />
+                  ) : (
+                    <Check className="text-ok size-4 shrink-0" aria-hidden />
+                  )}
+                  <span className="truncate">{f.name}</span>
+                  <span className="text-muted text-xs">{f.error ? "not saved" : "saving…"}</span>
+                </p>
+                <span className="tabular font-display text-xl font-bold">{formatDuration(f.ms)}</span>
+                {f.error && (
+                  <div role="alert" className="flex w-full flex-wrap items-center gap-2 text-sm">
+                    <span className="text-bad flex-1">{f.error}</span>
+                    <Button onClick={() => void saveFinish(f.attemptId, f.save)}>Retry</Button>
+                    <Button variant="ghost" onClick={() => setFinishing((l) => l.filter((x) => x.attemptId !== f.attemptId))}>
+                      Back to running
+                    </Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
 
         {!groupMode && heatList.length > 0 && (
@@ -932,8 +1057,8 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
                   </summary>
                   <ol className="divide-line border-line divide-y border-t">
                     {ordered.map(({ row, attempt }, k) => (
-                      <li key={attempt.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                        <div className="min-w-0">
+                      <li key={attempt.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                        <div className="min-w-0 flex-1">
                           <p className="truncate">
                             <span className="text-muted tabular mr-2">{attempt.result!.status === "VALID" ? k + 1 : "–"}</span>
                             {row.name}
@@ -953,6 +1078,27 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
                           )}
                         </div>
                         <span className="tabular font-display text-xl font-bold">{attempt.result!.display}</span>
+                        <Button
+                          variant="ghost"
+                          aria-label={`Edit ${row.name}'s result`}
+                          aria-expanded={editing === attempt.id}
+                          onClick={() => setEditing((e) => (e === attempt.id ? null : attempt.id))}
+                        >
+                          <Pencil className="size-4" aria-hidden /> Edit
+                        </Button>
+                        {editing === attempt.id && (
+                          <div className="basis-full">
+                            <EditScore
+                              key={attempt.result!.id}
+                              resultId={attempt.result!.id}
+                              status={attempt.result!.status}
+                              raw={attempt.result!.raw}
+                              elapsedMs={attempt.elapsedMs}
+                              data={data}
+                              onDone={() => setEditing(null)}
+                            />
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ol>
@@ -986,72 +1132,34 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
  * a "Passed <next>" button that logs the next one in order, and the finish button. Finish is only enabled
  * once every checkpoint is logged; otherwise the lead can finish anyway by giving a reason (audited).
  */
-/**
- * Two-step button: the first tap swaps it for "Yes, …" + Cancel in the same spot (no browser alert);
- * it disarms itself after a few seconds so a stray tap never lingers.
- */
+/** UUID for a record the UI shows before the server has saved it. (`randomUUID` is missing on plain-http LAN pages.) */
+const newId = () =>
+  crypto.randomUUID?.() ??
+  "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+    (Number(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c) / 4)))).toString(16),
+  );
+
 /** Server-clock "now" (same offset the running timers use), so a tap time can be sent to the server. */
 function useServerClock(serverNow: string) {
-  const offset = useRef(0);
   useEffect(() => {
-    offset.current = new Date(serverNow).getTime() - Date.now();
+    serverOffset(serverNow); // remember the estimate while the data is fresh
   }, [serverNow]);
-  return () => Date.now() + offset.current;
+  return () => Date.now() + serverOffset(serverNow);
 }
 
-function ConfirmAction({
-  onArm,
-  onConfirm,
-  confirmLabel,
-  disabled,
-  className,
-  variant,
-  children,
-}: {
-  onArm?: () => void;
-  onConfirm: () => void;
-  confirmLabel: string;
-  disabled?: boolean;
-  className?: string;
-  variant?: "danger";
-  children: React.ReactNode;
-}) {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 6000);
-    return () => clearTimeout(t);
-  }, [armed]);
-  if (!armed)
-    return (
-      <Button variant={variant} disabled={disabled} onClick={() => {
-          onArm?.();
-          setArmed(true);
-        }}
-        className={className}
-      >
-        {children}
-      </Button>
-    );
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        variant={variant}
-        disabled={disabled}
-        onClick={() => {
-          setArmed(false);
-          onConfirm();
-        }}
-        className={cn(className, "ring-2 ring-white/70")}
-      >
-        {confirmLabel}
-      </Button>
-      <Button variant="ghost" onClick={() => setArmed(false)}>
-        Cancel
-      </Button>
-    </div>
-  );
-}
+/** A run the UI shows before the server has saved it. */
+const unsavedAttempt = (id: string, startedAt: string, number: number): LeadAttempt => ({
+  id,
+  number,
+  status: "RUNNING",
+  startedAt,
+  elapsedMs: null,
+  heat: null,
+  checkpoints: [],
+  stations: [],
+  opponentName: null,
+  result: null,
+});
 
 function RunControls({
   attempt,
@@ -1059,14 +1167,16 @@ function RunControls({
   busy,
   finishLabel,
   onFinish,
+  onLastStationStop,
 }: {
   attempt: LeadAttempt;
   data: LeadConsoleData;
   busy: boolean;
   finishLabel: string;
   onFinish: (overrideReason?: string, stopAtMs?: number) => void;
+  onLastStationStop?: (tappedAt: number, totalMs: number) => void;
 }) {
-  if (data.activity.stations.length > 0) return <StationControls attempt={attempt} data={data} />;
+  if (data.activity.stations.length > 0) return <StationControls attempt={attempt} data={data} onLastStop={onLastStationStop} />;
   return <CheckpointControls attempt={attempt} data={data} busy={busy} finishLabel={finishLabel} onFinish={onFinish} />;
 }
 
@@ -1084,7 +1194,6 @@ function CheckpointControls({
   onFinish: (overrideReason?: string, stopAtMs?: number) => void;
 }) {
   const serverTime = useServerClock(data.serverNow);
-  const armedAt = useRef<number | undefined>(undefined);
   const { run, pending, error } = useAct();
   const [override, setOverride] = useState(false);
   const [reason, setReason] = useState("");
@@ -1127,16 +1236,14 @@ function CheckpointControls({
         </>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <ConfirmAction
+        <Button
           disabled={disabled || !complete}
-          onArm={() => (armedAt.current = serverTime())}
-          onConfirm={() => onFinish(undefined, armedAt.current)}
-          confirmLabel={`Yes, ${finishLabel}`}
+          onClick={() => onFinish(undefined, serverTime())}
           className="bg-ok hover:bg-ok/85 min-h-14 w-full gap-2 text-lg font-bold text-black sm:w-auto sm:min-w-44 disabled:opacity-40"
         >
-          {busy ? <Loader2 className="size-6 animate-spin" aria-hidden /> : <FlagTriangleRight className="size-6" aria-hidden />}
-          {busy ? "Saving…" : finishLabel}
-        </ConfirmAction>
+          {busy ? <Check className="size-6" aria-hidden /> : <FlagTriangleRight className="size-6" aria-hidden />}
+          {busy ? "Finished" : finishLabel}
+        </Button>
         {!complete && !override && (
           <Button variant="ghost" disabled={disabled} onClick={() => setOverride(true)}>
             Finish without all checkpoints…
@@ -1152,15 +1259,9 @@ function CheckpointControls({
             aria-label="Reason for finishing without all checkpoints"
             className="w-72"
           />
-          <ConfirmAction
-            variant="danger"
-            disabled={disabled || reason.trim().length < 3}
-            onArm={() => (armedAt.current = serverTime())}
-            onConfirm={() => onFinish(reason.trim(), armedAt.current)}
-            confirmLabel={`Yes, ${finishLabel} anyway`}
-          >
+          <Button variant="danger" disabled={disabled || reason.trim().length < 3} onClick={() => onFinish(reason.trim(), serverTime())}>
             {finishLabel} anyway
-          </ConfirmAction>
+          </Button>
         </div>
       )}
       {error && (
@@ -1176,9 +1277,17 @@ function CheckpointControls({
  * Multi-station run: every station has its own timer. The first starts with the run; Stop saves that station's
  * time and shows "Start Station N" for the next; stopping the last one ends the run with the stations' sum as the total.
  */
-function StationControls({ attempt, data }: { attempt: LeadAttempt; data: LeadConsoleData }) {
+function StationControls({
+  attempt,
+  data,
+  onLastStop,
+}: {
+  attempt: LeadAttempt;
+  data: LeadConsoleData;
+  /** When given, the caller saves the final stop itself (and may remove this card right away). */
+  onLastStop?: (tappedAt: number, totalMs: number) => void;
+}) {
   const serverTime = useServerClock(data.serverNow);
-  const armedAt = useRef<number | undefined>(undefined);
   const { run, pending, error } = useAct();
   // Frozen is tied to the exact state it was pressed in: it holds until the refreshed data moves on (never resumes early).
   const [frozenAt, setFrozenAt] = useState<string | null>(null);
@@ -1265,16 +1374,18 @@ function StationControls({ attempt, data }: { attempt: LeadAttempt; data: LeadCo
         </Button>
       )}
       {st.kind === "running" && (
-        <ConfirmAction
+        <Button
           disabled={pending || frozen}
-          onArm={() => (armedAt.current = serverTime())}
-          onConfirm={() => act(() => stopStationAction(attempt.id, armedAt.current))}
-          confirmLabel={`Yes, ${last ? `End ${stations[st.index].label} & Finish` : `End ${stations[st.index].label}`}`}
+          onClick={() => {
+            const tappedAt = serverTime();
+            if (last && onLastStop) onLastStop(tappedAt, st.doneMs + tappedAt - Date.parse(st.startedAt));
+            else act(() => stopStationAction(attempt.id, tappedAt));
+          }}
           className="min-h-14 w-full gap-2 text-lg font-bold sm:w-auto sm:min-w-52"
         >
-          {frozen ? <Loader2 className="size-6 animate-spin" aria-hidden /> : <Square className="size-6" aria-hidden />}
-          {frozen ? "Saving…" : last ? `End ${stations[st.index].label} & Finish` : `End ${stations[st.index].label}`}
-        </ConfirmAction>
+          {frozen ? <Check className="size-6" aria-hidden /> : <Square className="size-6" aria-hidden />}
+          {frozen ? (last ? "Finished" : `${stations[st.index].label} done`) : last ? `End ${stations[st.index].label} & Finish` : `End ${stations[st.index].label}`}
+        </Button>
       )}
       {error && (
         <p role="alert" className="text-bad text-sm">
@@ -1340,21 +1451,26 @@ function EditScore({
   resultId,
   status: initialStatus,
   raw,
+  elapsedMs,
   data,
   onDone,
 }: {
   resultId: string;
   status: string;
   raw: Record<string, unknown>;
+  elapsedMs: number | null;
   data: LeadConsoleData;
   onDone: () => void;
 }) {
   const cfg = data.activity.config;
+  // A stopwatch result keeps its time on the attempt, not in the entered fields.
+  const timer = cfg.template === "TIME" && !cfg.params.manualTime && elapsedMs !== null;
+  const [time, setTime] = useState(() => (elapsedMs === null ? "" : formatDuration(elapsedMs)));
   const [vals, setVals] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       cfg.fields.map((f) => {
         const v = raw[f.key];
-        return [f.key, v === undefined || v === null ? "" : String(f.type === "duration_ms" ? Number(v) / 1000 : v)];
+        return [f.key, v === undefined || v === null ? "" : f.type === "duration_ms" ? formatDuration(Number(v)) : String(v)];
       }),
     ),
   );
@@ -1364,28 +1480,42 @@ function EditScore({
     for (const f of cfg.fields) {
       const v = vals[f.key];
       if (v === "" || v === undefined) continue;
-      out[f.key] = f.type === "boolean" ? v === "true" || v === "on" : f.type === "duration_ms" ? Math.round(Number(v) * 1000) : Number(v);
+      out[f.key] = f.type === "boolean" ? v === "true" || v === "on" : f.type === "duration_ms" ? parseDuration(v) : Number(v);
     }
-    return { raw: out, status: status as "VALID" };
+    return { raw: out, status: status as "VALID", elapsedMs: timer ? (parseDuration(time) ?? undefined) : undefined };
   };
+  // Checked before saving, so a mistyped time is never silently dropped.
+  const badTime =
+    (timer && parseDuration(time) === null) ||
+    cfg.fields.some((f) => f.type === "duration_ms" && !!vals[f.key] && parseDuration(vals[f.key]) === null);
   return (
     <ActionForm
-      action={async () => correctAction(resultId, payload())}
+      action={async () =>
+        badTime
+          ? { ok: false as const, code: "VALIDATION" as const, error: "Enter times as m:ss.mmm, for example 1:23.450." }
+          : correctAction(resultId, payload())
+      }
       submitLabel="Save score"
       success="Score updated."
       onDone={onDone}
       className="mt-3 space-y-3"
     >
       <div className="grid gap-3 sm:grid-cols-3">
+        {timer && (
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Time (m:ss.mmm)</span>
+            <Input value={time} onChange={(e) => setTime(e.target.value)} />
+          </label>
+        )}
         {cfg.fields.map((f) => (
           <label key={f.key} className="block text-sm">
             <span className="mb-1 block font-medium">
               {f.label}
-              {f.type === "duration_ms" ? " (seconds)" : f.unit ? ` (${f.unit})` : ""}
+              {f.type === "duration_ms" ? " (m:ss.mmm)" : f.unit ? ` (${f.unit})` : ""}
             </span>
             <Input
-              type="number"
-              inputMode="decimal"
+              type={f.type === "duration_ms" ? "text" : "number"}
+              inputMode={f.type === "duration_ms" ? "text" : "decimal"}
               step={f.type === "integer" ? 1 : "any"}
               value={vals[f.key] ?? ""}
               onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })}
@@ -1479,7 +1609,7 @@ function ResultLine({ attempt, data }: { attempt: LeadAttempt; data: LeadConsole
           {error}
         </p>
       )}
-      {edit && <EditScore resultId={r.id} status={r.status} raw={r.raw} data={data} onDone={() => setEdit(false)} />}
+      {edit && <EditScore resultId={r.id} status={r.status} raw={r.raw} elapsedMs={attempt.elapsedMs} data={data} onDone={() => setEdit(false)} />}
       {flag && (
         <ActionForm
           action={disputeAction.bind(null, r.id)}
@@ -1701,6 +1831,7 @@ function BoothScan({
   checkinOnly: boolean;
 }) {
   const router = useRouter();
+  const serverTime = useServerClock(data.serverNow);
   const [notice, setNotice] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [code, setCode] = useState("");
@@ -1725,14 +1856,29 @@ function BoothScan({
       return r && heatEligible(r, data);
     });
     if (ids.length === 0) return setError("Select at least one participant who is ready to start.");
+    const tappedAt = serverTime();
+    await attempt(
+      () => startHeatAction(ids, tappedAt),
+      () => {
+        setSelecting(false);
+        setPicked(new Set());
+      },
+    );
+  }
+  /** One list-button action at a time; the buttons come back even if the connection drops. */
+  async function attempt(fn: () => Promise<ActionResult<unknown>>, then?: () => void) {
     setBusy(true);
-    const st = await startHeatAction(ids);
-    setBusy(false);
-    if (!st.ok) return setError(st.error);
-    setError(null);
-    setSelecting(false);
-    setPicked(new Set());
-    router.refresh();
+    try {
+      const r = await fn();
+      if (!r.ok) return setError(r.error);
+      setError(null);
+      then?.();
+      router.refresh();
+    } catch {
+      setError("Network error. Check your connection and retry.");
+    } finally {
+      setBusy(false);
+    }
   }
   const checkedIn = data.rows.filter((r) => r.queue !== "NOT_ARRIVED" && r.queue !== "WITHDRAWN" && !(hideDone && r.queue === "DONE"));
 
@@ -1911,16 +2057,16 @@ function BoothScan({
                         {!checkinOnly && !multi && !selecting && data.activity.status === "ACTIVE" && heatEligible(r, data) && (
                           <Button
                             disabled={busy}
-                            onClick={async () => {
+                            onClick={() => {
                               // Matches need an opponent, so open the participant card to pick one.
                               if (data.activity.config.template === "MATCH") return onFocus(r.id);
-                              setBusy(true);
-                              const st = await startAction(r.id);
-                              setBusy(false);
-                              if (!st.ok) return setError(st.error);
-                              setError(null);
-                              if (!multi) onFocus(r.id);
-                              router.refresh();
+                              const tappedAt = serverTime();
+                              void attempt(
+                                () => startAction(r.id, undefined, tappedAt),
+                                () => {
+                                  if (!multi) onFocus(r.id);
+                                },
+                              );
                             }}
                           >
                             <Play className="size-5" aria-hidden /> Start
@@ -1930,14 +2076,8 @@ function BoothScan({
                           <Button
                             variant="danger"
                             disabled={busy}
-                            onClick={async () => {
-                              if (!window.confirm(`Check out ${r.name}? They will go back to "not arrived".`)) return;
-                              setBusy(true);
-                              const c = await checkOutAction(r.id);
-                              setBusy(false);
-                              if (!c.ok) return setError(c.error);
-                              setError(null);
-                              router.refresh();
+                            onClick={() => {
+                              if (window.confirm(`Check out ${r.name}? They will go back to "not arrived".`)) void attempt(() => checkOutAction(r.id));
                             }}
                           >
                             Check out

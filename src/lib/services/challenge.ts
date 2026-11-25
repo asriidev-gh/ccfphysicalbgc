@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import type { ResultStatus } from "@/generated/prisma/enums";
@@ -20,6 +21,8 @@ export function loadConfig(json: unknown): ScoringConfig {
 async function lockEnrolment(tx: Tx, id: string) {
   await tx.$queryRaw`SELECT id FROM "ActivityRegistration" WHERE id = ${id}::uuid FOR UPDATE`;
 }
+
+type LoadedAttempt = Awaited<ReturnType<typeof loadAttemptForActor>>;
 
 async function loadAttemptForActor(db: Db, actor: Actor, attemptId: string) {
   const attempt = await db.challengeAttempt.findUnique({
@@ -106,7 +109,8 @@ export async function withdrawFromActivity(db: Db, actor: Actor, activityRegistr
 
 // ───────── Start / finish / cancel ─────────
 
-export async function startAttempt(db: Db, actor: Actor, input: { activityRegistrationId: string; opponentRegistrationId?: string }) {
+export async function startAttempt(db: Db, actor: Actor, input: { activityRegistrationId: string; opponentRegistrationId?: string; startAtMs?: number; attemptId?: string }) {
+  const receivedAt = new Date();
   const first = await db.activityRegistration.findUnique({ where: { id: input.activityRegistrationId }, select: { activityId: true } });
   if (!first) throw new AppError("NOT_FOUND", "Participant not found.");
   await assertActivityAccess(db, actor, first.activityId);
@@ -156,10 +160,11 @@ export async function startAttempt(db: Db, actor: Actor, input: { activityRegist
       if (used >= cfg.attemptPolicy.maxAttempts) throw new AppError("CONFLICT", "No attempts remaining for this participant.");
       const attemptNumber = prior.reduce((m, p) => Math.max(m, p.attemptNumber), 0) + 1;
 
-      // Authoritative start instant is taken here, on the server.
-      const startedAt = new Date();
+      // Authoritative start instant: the lead's tap (clamped by the server), else now.
+      const startedAt = input.startAtMs === undefined ? new Date() : effectiveTap(receivedAt, input.startAtMs);
       const attempt = await tx.challengeAttempt.create({
         data: {
+          id: input.attemptId,
           activityId: ar.activityId,
           activityRegistrationId: ar.id,
           opponentRegistrationId: opponentId,
@@ -194,7 +199,16 @@ export async function startAttempt(db: Db, actor: Actor, input: { activityRegist
  * Start several participants together (a heat). Everyone gets the same server-side start instant,
  * and the start is all-or-nothing: if anyone is not eligible, nobody starts.
  */
-export async function startHeat(db: Db, actor: Actor, activityRegistrationIds: string[]) {
+export async function startHeat(
+  db: Db,
+  actor: Actor,
+  activityRegistrationIds: string[],
+  startAtMs?: number,
+  /** Attempt ids chosen by the client (by registration id), so it can act on a run before this call returns. */
+  newAttemptIds?: Record<string, string>,
+) {
+  const receivedAt = new Date();
+  const chosenIds = z.record(z.string(), z.string().uuid()).optional().parse(newAttemptIds);
   if (!Array.isArray(activityRegistrationIds) || activityRegistrationIds.length === 0)
     throw new AppError("VALIDATION", "Select at least one runner.");
   const ids = [...new Set(z.array(z.string().uuid()).max(100).parse(activityRegistrationIds))].sort();
@@ -206,7 +220,7 @@ export async function startHeat(db: Db, actor: Actor, activityRegistrationIds: s
 
   try {
     return await db.$transaction(async (tx) => {
-      for (const id of ids) await lockEnrolment(tx, id);
+      await tx.$queryRaw`SELECT id FROM "ActivityRegistration" WHERE id IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))}) ORDER BY id FOR UPDATE`;
       const ars = await tx.activityRegistration.findMany({
         where: { id: { in: ids } },
         include: {
@@ -232,30 +246,28 @@ export async function startHeat(db: Db, actor: Actor, activityRegistrationIds: s
       // Serialise heat numbering per activity so two concurrent heats never share a number.
       await tx.$queryRaw`SELECT id FROM "EventActivity" WHERE id = ${activityId}::uuid FOR UPDATE`;
       const heat = ((await tx.challengeAttempt.aggregate({ where: { activityId }, _max: { heat: true } }))._max.heat ?? 0) + 1;
-      const startedAt = new Date(); // one authoritative instant for the whole heat
-      const attemptIds: string[] = [];
-      for (const ar of ars) {
-        const attemptNumber = ar.attempts.reduce((m, p) => Math.max(m, p.attemptNumber), 0) + 1;
-        const attempt = await tx.challengeAttempt.create({
-          data: {
-            activityId,
-            activityRegistrationId: ar.id,
-            attemptNumber,
-            heat,
-            status: "RUNNING",
-            startedAt,
-            startedById: actor.id,
-          },
-        });
-        attemptIds.push(attempt.id);
-        await audit(tx, {
+      const startedAt = startAtMs === undefined ? new Date() : effectiveTap(receivedAt, startAtMs); // one authoritative instant for the whole heat
+      const attempts = ars.map((ar) => ({
+        id: chosenIds?.[ar.id] ?? randomUUID(),
+        activityId,
+        activityRegistrationId: ar.id,
+        attemptNumber: ar.attempts.reduce((m, p) => Math.max(m, p.attemptNumber), 0) + 1,
+        heat,
+        status: "RUNNING" as const,
+        startedAt,
+        startedById: actor.id,
+      }));
+      await tx.challengeAttempt.createMany({ data: attempts });
+      await tx.auditLog.createMany({
+        data: attempts.map((a) => ({
           actorId: actor.id,
           action: "attempt.start",
           entityType: "ChallengeAttempt",
-          entityId: attempt.id,
-          next: { attemptNumber, heat, runners: ids.length },
-        });
-      }
+          entityId: a.id,
+          next: { attemptNumber: a.attemptNumber, heat, runners: ids.length },
+        })),
+      });
+      const attemptIds = attempts.map((a) => a.id);
       await tx.activityRegistration.updateMany({ where: { id: { in: ids } }, data: { queueStatus: "IN_PROGRESS" } });
       return { heat, attemptIds, startedAt: startedAt.toISOString(), serverNow: new Date().toISOString() };
     });
@@ -271,13 +283,13 @@ export async function startHeat(db: Db, actor: Actor, activityRegistrationIds: s
  * stopwatch result), the result is submitted automatically; otherwise staff enter the fields next.
  */
 /**
- * The instant a stop counts from. Normally the moment the request arrives; when the lead used the two-step
- * confirm, the client sends the (server-clock) time of the FIRST tap so the confirmation delay is not added to
- * the runner's time. Only an earlier time within a short window is honoured; anything else falls back to receipt.
+ * The instant a start or stop counts from. The client sends the (server-clock) time of the tap, so network delay
+ * and queued requests are not added to the runner's time. Saves queue on the client and can be retried, so the claim is clamped to the 10 minutes before receipt;
+ * without one, the moment the request arrives is used.
  */
-export function effectiveStop(receivedAt: Date, claimedMs?: number): Date {
+export function effectiveTap(receivedAt: Date, claimedMs?: number): Date {
   if (claimedMs === undefined || !Number.isFinite(claimedMs)) return receivedAt;
-  const t = Math.min(receivedAt.getTime(), Math.max(claimedMs, receivedAt.getTime() - 15_000));
+  const t = Math.min(receivedAt.getTime(), Math.max(claimedMs, receivedAt.getTime() - 600_000));
   return new Date(t);
 }
 
@@ -285,12 +297,15 @@ export async function finishRunner(db: Db, actor: Actor, attemptId: string, over
   // Stamp the stop instant on receipt so database round trips below never inflate the runner's time.
   const receivedAt = new Date();
   const attempt = await loadAttemptForActor(db, actor, attemptId);
-  if (attempt.status === "RUNNING") await finishAttempt(db, actor, attemptId, overrideReason, receivedAt, stopAtMs);
-  else if (attempt.status !== "FINISHED") throw new AppError("CONFLICT", "This attempt is not running (it may already be finished).");
+  let current = attempt;
+  if (attempt.status === "RUNNING") {
+    const done = await finishAttempt(db, actor, attemptId, overrideReason, receivedAt, stopAtMs, attempt);
+    current = { ...attempt, status: "FINISHED", finishedAt: new Date(done.finishedAt), elapsedMs: done.elapsedMs };
+  } else if (attempt.status !== "FINISHED") throw new AppError("CONFLICT", "This attempt is not running (it may already be finished).");
   const cfg = loadConfig(attempt.activity.scoringConfig);
   if (cfg.fields.length > 0) return { submitted: false };
   // Idempotent: a retry after a failed submit reuses the same key.
-  await submitResult(db, actor, { attemptId, raw: {}, status: "VALID", submitKey: `auto-${attemptId}` });
+  await submitResult(db, actor, { attemptId, raw: {}, status: "VALID", submitKey: `auto-${attemptId}` }, current);
   return { submitted: true };
 }
 
@@ -381,7 +396,7 @@ export async function startStation(db: Db, actor: Actor, attemptId: string) {
  * the station times, and the result is submitted automatically unless other required fields still need entering.
  */
 export async function stopStation(db: Db, actor: Actor, attemptId: string, stopAtMs?: number) {
-  let stoppedAt = effectiveStop(new Date(), stopAtMs); // stamp on receipt so database round trips never inflate the time
+  let stoppedAt = effectiveTap(new Date(), stopAtMs); // stamp on receipt so database round trips never inflate the time
   const { attempt, cfg, stations, state } = await loadStationAttempt(db, actor, attemptId);
   if (state.kind !== "running") throw new AppError("CONFLICT", "No station is running. Start the next station first.");
   if (stoppedAt < new Date(state.startedAt)) stoppedAt = new Date(state.startedAt);
@@ -452,8 +467,10 @@ export async function finishAttempt(
   overrideReason?: string,
   receivedAt = new Date(),
   stopAtMs?: number,
+  /** Pass the attempt when the caller has just loaded (and so authorised) it. */
+  loaded?: LoadedAttempt,
 ) {
-  const attempt = await loadAttemptForActor(db, actor, attemptId);
+  const attempt = loaded ?? (await loadAttemptForActor(db, actor, attemptId));
   // Every checkpoint on the route must be logged before the run can end, unless the lead overrides with a reason.
   const required = attempt.activity.checkpoints.length;
   let skipped = 0;
@@ -464,7 +481,7 @@ export async function finishAttempt(
       throw new AppError("CONFLICT", `${skipped} checkpoint${skipped === 1 ? " is" : "s are"} not logged yet. Log them, or finish with a reason.`);
     if (skipped > 0 && overrideReason!.trim().length < 3) throw new AppError("VALIDATION", "Give a reason for finishing without all checkpoints.");
   }
-  let finishedAt = effectiveStop(receivedAt, stopAtMs);
+  let finishedAt = effectiveTap(receivedAt, stopAtMs);
   if (finishedAt < attempt.startedAt) finishedAt = attempt.startedAt;
   // Countdown activities: the run can never last longer than the configured timer, even if the lead finishes late.
   const durationMin = loadConfig(attempt.activity.scoringConfig).params.durationMinutes;
@@ -532,9 +549,9 @@ function publishedFlags(activity: { requireApproval: boolean; leaderboardPublish
     : { approvalStatus: "APPROVED" as const, published: activity.leaderboardPublished };
 }
 
-export async function submitResult(db: Db, actor: Actor, rawInput: unknown) {
+export async function submitResult(db: Db, actor: Actor, rawInput: unknown, loaded?: LoadedAttempt) {
   const input = submitInput.parse(rawInput);
-  const attempt = await loadAttemptForActor(db, actor, input.attemptId);
+  const attempt = loaded?.id === input.attemptId ? loaded : await loadAttemptForActor(db, actor, input.attemptId);
   const activity = attempt.activity;
 
   // Idempotent retry: the same key for the same attempt returns the stored result.
@@ -678,7 +695,8 @@ export async function correctResult(
   db: Db,
   actor: Actor,
   resultId: string,
-  input: { raw: Record<string, unknown>; status: ResultStatus; reason?: string },
+  /** `elapsedMs` replaces the timer's time on timed activities (station activities take theirs from `raw`). */
+  input: { raw: Record<string, unknown>; status: ResultStatus; reason?: string; elapsedMs?: number },
 ) {
   const reason =
     z
@@ -694,9 +712,17 @@ export async function correctResult(
   await assertActivityAccess(db, actor, old.attempt.activityId);
   // Re-use the ORIGINAL scoring version so a later rule change cannot alter this result.
   const cfg = loadConfig(old.scoringVersion.config);
+  let elapsedMs = z.number().int().min(0).max(86_400_000).optional().parse(input.elapsedMs) ?? old.attempt.elapsedMs;
+  // Station activities: the run's time is the sum of the station times, so editing a station moves the total with it.
+  const stations = cfg.template === "MULTI_STATION" ? (cfg.params.stations ?? []) : [];
+  const stationMs = stations.map((s) => {
+    const v = input.raw[s.key];
+    return v === undefined || v === null || v === "" ? null : Number(v);
+  });
+  if (old.attempt.elapsedMs !== null && stationMs.some((v) => v !== null)) elapsedMs = stationMs.reduce<number>((sum, v) => sum + (v ?? 0), 0);
   let calc;
   try {
-    calc = calculate(cfg, { raw: input.raw, elapsedMs: old.attempt.elapsedMs, status: input.status });
+    calc = calculate(cfg, { raw: input.raw, elapsedMs, status: input.status });
   } catch (e) {
     if (e instanceof ScoringError) throw new AppError("VALIDATION", "Please correct the highlighted values.", e.fieldErrors);
     throw e;
@@ -706,6 +732,13 @@ export async function correctResult(
   const created = await db.$transaction(async (tx) => {
     const flip = await tx.challengeResult.updateMany({ where: { id: old.id, current: true }, data: { current: false, published: false } });
     if (flip.count === 0) throw new AppError("CONFLICT", "This result was changed by someone else. Reload and retry.");
+    if (elapsedMs !== old.attempt.elapsedMs) {
+      // A station run's finish time includes the gaps between stations, so only a single timer's finish moves.
+      const finishedAt = stations.length === 0 && elapsedMs !== null ? new Date(old.attempt.startedAt.getTime() + elapsedMs) : undefined;
+      await tx.challengeAttempt.update({ where: { id: old.attemptId }, data: { elapsedMs, finishedAt } });
+    }
+    for (const [stationIndex, ms] of stationMs.entries())
+      if (ms !== null) await tx.stationLog.updateMany({ where: { attemptId: old.attemptId, stationIndex }, data: { elapsedMs: ms } });
     const n = await tx.challengeResult.create({
       data: {
         attemptId: old.attemptId,
@@ -728,8 +761,8 @@ export async function correctResult(
       action: "result.correct",
       entityType: "ChallengeResult",
       entityId: n.id,
-      previous: { id: old.id, finalValue: old.finalValue?.toString(), status: old.resultStatus },
-      next: { finalValue: calc.primary, status: input.status, reason },
+      previous: { id: old.id, finalValue: old.finalValue?.toString(), status: old.resultStatus, elapsedMs: old.attempt.elapsedMs },
+      next: { finalValue: calc.primary, status: input.status, reason, elapsedMs },
     });
     return n;
   });

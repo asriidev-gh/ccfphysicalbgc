@@ -70,8 +70,9 @@ export default async function LeadActivityPage({
     );
   }
 
-  // Start Challenge on a race sport asks whether this is an Individual or a Group challenge (matches have no groups).
-  if (chosen === "multiple" && !isMatch && !type) {
+  // HYROX asks whether this is an Individual or a Group challenge; other sports have no groups.
+  const hasGroups = data.activity.allowGroups && !isMatch;
+  if (chosen === "multiple" && hasGroups && !type) {
     return (
       <div className="mx-auto max-w-3xl">
         <PageTitle title={data.activity.name} sub="Who is taking this challenge?" />
@@ -98,7 +99,7 @@ export default async function LeadActivityPage({
   }
 
   const multi = timed && chosen === "multiple";
-  const groupMode = multi && !isMatch && type === "group";
+  const groupMode = multi && hasGroups && type === "group";
   const checkinOnly = timed && chosen === "checkin";
   return (
     <div className="mx-auto max-w-4xl">
@@ -109,7 +110,7 @@ export default async function LeadActivityPage({
           <div className="flex flex-wrap items-center gap-4 text-sm font-semibold">
             {timed && (
               <Link href={`/lead/${activityId}`} className="text-muted underline">
-                {multi ? (isMatch ? "Start Challenge" : `Start Challenge · ${groupMode ? "Group" : "Individual"}`) : "Check-in"} · change
+                {multi ? (hasGroups ? `Start Challenge · ${groupMode ? "Group" : "Individual"}` : "Start Challenge") : "Check-in"} · change
               </Link>
             )}
           </div>

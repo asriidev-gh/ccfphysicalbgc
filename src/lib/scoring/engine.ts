@@ -162,6 +162,16 @@ export function elapsedBetween(start: Date, finish: Date): number {
   return ms;
 }
 
+/** Reads a typed time ("1.88", "1:23.456", "1:02:03") as whole milliseconds; null when it is not a time. */
+export function parseDuration(text: string): number | null {
+  const m = text.trim().match(/^(?:(?:(\d{1,2}):)?(\d{1,3}):)?(\d+(?:\.\d{1,3})?)$/);
+  if (!m) return null;
+  const [, h, min, sec] = m;
+  if (min !== undefined && Number(sec) >= 60) return null;
+  if (h !== undefined && Number(min) >= 60) return null;
+  return Math.round((Number(h ?? 0) * 3600 + Number(min ?? 0) * 60 + Number(sec)) * 1000);
+}
+
 /** m:ss.mmm, or h:mm:ss.mmm for an hour or more. */
 export function formatDuration(ms: number): string {
   const sign = ms < 0 ? "-" : "";

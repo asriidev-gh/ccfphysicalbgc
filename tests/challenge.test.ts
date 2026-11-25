@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { AppError } from "@/lib/errors";
@@ -8,6 +9,7 @@ import {
   correctResult,
   deleteResult,
   dismissDispute,
+  effectiveTap,
   finishAttempt,
   finishRunner,
   logCheckpoint,
@@ -461,5 +463,57 @@ describe("multi-station runs", () => {
     // wall-clock run time includes the ~120ms gap between stations; the total must not
     expect(att.finishedAt!.getTime() - att.startedAt.getTime() - att.elapsedMs!).toBeGreaterThanOrEqual(100);
     expect(att.results[0].finalValue!.toNumber()).toBe(sum);
+
+    // editing a station time moves the total, the attempt and the station log together
+    await correctResult(db, w.lead, att.results[0].id, { raw: { s1: 1500, s2: 2500 }, status: "VALID" });
+    const edited = await db.challengeAttempt.findUniqueOrThrow({
+      where: { id },
+      include: { results: { where: { current: true } }, stationLogs: { orderBy: { stationIndex: "asc" } } },
+    });
+    expect(edited.elapsedMs).toBe(4000);
+    expect(edited.stationLogs.map((l) => l.elapsedMs)).toEqual([1500, 2500]);
+    expect(edited.results[0].finalValue!.toNumber()).toBe(4000);
+  });
+
+  it("lets staff adjust a stopwatch time", async () => {
+    const a = await w.makeActivity({ config: presetFor("running"), requireApproval: false });
+    const r = await enrol(a.id);
+    const [id] = (await startHeat(db, w.lead, [r.id])).attemptIds;
+    await finishRunner(db, w.lead, id);
+    const first = await db.challengeResult.findFirstOrThrow({ where: { attemptId: id } });
+    await correctResult(db, w.lead, first.id, { raw: {}, status: "VALID", elapsedMs: 61_234 });
+    const edited = await db.challengeAttempt.findUniqueOrThrow({ where: { id }, include: { results: { where: { current: true } } } });
+    expect(edited.elapsedMs).toBe(61_234);
+    expect(edited.finishedAt!.getTime() - edited.startedAt.getTime()).toBe(61_234);
+    expect(edited.results[0].finalValue!.toNumber()).toBe(61_234);
+  });
+});
+
+describe("starting and stopping from the tap", () => {
+  it("accepts client attempt ids and tap times, so a quick stop records the tapped duration", async () => {
+    const a = await w.makeActivity({ config: presetFor("running"), requireApproval: false });
+    const [r1, r2] = await Promise.all([enrol(a.id), enrol(a.id)]);
+    const ids = { [r1.id]: randomUUID(), [r2.id]: randomUUID() };
+    const startedAt = Date.now() - 5000;
+    const h = await startHeat(db, w.lead, [r1.id, r2.id], startedAt, ids);
+    expect([...h.attemptIds].sort()).toEqual(Object.values(ids).sort());
+    expect(await db.auditLog.count({ where: { action: "attempt.start", entityId: { in: h.attemptIds } } })).toBe(2);
+
+    expect(await finishRunner(db, w.lead, ids[r1.id], undefined, startedAt + 1234)).toEqual({ submitted: true });
+    const done = await db.challengeAttempt.findUniqueOrThrow({ where: { id: ids[r1.id] }, include: { results: true } });
+    expect(done).toMatchObject({ status: "SUBMITTED", elapsedMs: 1234 });
+    expect(done.results[0].finalValue?.toNumber()).toBe(1234);
+
+    const r3 = await enrol(a.id);
+    const id = randomUUID();
+    expect((await startAttempt(db, w.lead, { activityRegistrationId: r3.id, attemptId: id, startAtMs: startedAt })).attemptId).toBe(id);
+  });
+
+  it("never trusts a tap time from the future or older than the window", () => {
+    const now = new Date(10_000_000);
+    expect(effectiveTap(now, now.getTime() + 5000)).toEqual(now);
+    expect(effectiveTap(now, 0).getTime()).toBe(now.getTime() - 600_000);
+    expect(effectiveTap(now, now.getTime() - 30_000).getTime()).toBe(now.getTime() - 30_000);
+    expect(effectiveTap(now)).toEqual(now);
   });
 });

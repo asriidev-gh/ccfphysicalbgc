@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculate, elapsedBetween, formatDuration, ScoringError, validateRaw } from "./engine";
+import { parseDuration, calculate, elapsedBetween, formatDuration, ScoringError, validateRaw } from "./engine";
 import { buildMatchStandings, rankEntries, type RankEntry } from "./ranking";
 import { scoringConfigSchema, type ScoringConfig } from "./schema";
 import { defaultScoringConfig, presetFor } from "./templates";
@@ -125,6 +125,13 @@ describe("repetitions / CrossFit", () => {
     ]);
     expect(rows[0].metrics.totalReps).toBe(50);
     expect(rows.map((r) => r.id)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("typed times", () => {
+  it("reads seconds, minutes and hours, and rejects anything else", () => {
+    expect(["1.88", "0:01.880", "1:23.45", "1:02:03", "90"].map(parseDuration)).toEqual([1880, 1880, 83_450, 3_723_000, 90_000]);
+    expect(["", "abc", "1:75", "1:60:00", "-3", "1.2345"].map(parseDuration)).toEqual([null, null, null, null, null, null]);
   });
 });
 
