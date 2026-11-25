@@ -272,18 +272,16 @@ export function RaffleWheel({ pool, winners, canReset }: { pool: RaffleEntrant[]
                     <p className="font-semibold break-words">{w.name}</p>
                     {w.prize && <p className="text-gold text-xs">{w.prize}</p>}
                   </div>
-                  {canReset && (
-                    <Button
-                      variant="ghost"
-                      className="text-bad -mr-2 min-w-11 shrink-0 px-2"
-                      aria-label={`Remove ${w.name} from the winners`}
-                      title="Remove"
-                      disabled={spinning || saving}
-                      onClick={() => remove(w)}
-                    >
-                      <Trash2 className="size-4" aria-hidden />
-                    </Button>
-                  )}
+                  <Button
+                    variant="ghost"
+                    className="text-bad -mr-2 min-w-11 shrink-0 px-2"
+                    aria-label={`Remove ${w.name} from the winners`}
+                    title="Remove"
+                    disabled={spinning || saving}
+                    onClick={() => remove(w)}
+                  >
+                    <Trash2 className="size-4" aria-hidden />
+                  </Button>
                 </li>
               ))}
             </ol>

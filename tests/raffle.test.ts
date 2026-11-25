@@ -37,8 +37,7 @@ describe("raffle draw", () => {
 
     // a removed winner goes back into the draw and can be drawn again
     const back = first.winner.id;
-    await expect(removeRaffleWinner(db, w.lead, w.event.id, back)).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await removeRaffleWinner(db, w.admin, w.event.id, back);
+    await removeRaffleWinner(db, null, w.event.id, back); // no sign-in needed
     const removed = await getRaffle(db, w.event.id);
     expect(removed.pool.map((p) => p.id)).toEqual([back]);
     expect(removed.winners).toHaveLength(2);
@@ -50,7 +49,7 @@ describe("raffle draw", () => {
     expect([fresh.pool.length, fresh.winners.length]).toEqual([3, 0]);
   });
 
-  it("can be spun without signing in, but only an admin can reset it", async () => {
+  it("can be spun without signing in, but only an admin can reset the whole draw", async () => {
     const drawn = await drawRaffle(db, null, w.event.id, { checkedInOnly: false });
     expect((await getRaffle(db, w.event.id)).winners.map((x) => x.participantId)).toEqual([drawn.winner.id]);
     await expect(resetRaffle(db, w.lead, w.event.id)).rejects.toMatchObject({ code: "FORBIDDEN" });

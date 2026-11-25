@@ -101,16 +101,15 @@ export async function drawRaffle(db: Db, actor: Actor | null, eventId: string, o
   );
 }
 
-/** Take one person off the winners list and put them back in the draw. */
-export async function removeRaffleWinner(db: Db, actor: Actor, eventId: string, participantId: string) {
-  assertAdmin(actor);
+/** Take one person off the winners list and put them back in the draw. Open to the public, like drawing. */
+export async function removeRaffleWinner(db: Db, actor: Actor | null, eventId: string, participantId: string) {
   await db.$transaction(
     async (tx) => {
       await lock(tx, eventId);
       const draw = (await currentDraws(tx, eventId)).find((d) => d.participantId === participantId);
       if (!draw) throw new AppError("NOT_FOUND", "They are no longer on the winners list.");
       await audit(tx, {
-        actorId: actor.id,
+        actorId: actor?.id,
         action: "raffle.remove",
         entityType: ENTITY,
         entityId: eventId,

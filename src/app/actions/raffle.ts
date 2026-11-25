@@ -27,9 +27,10 @@ export async function drawRaffleAction(options: { checkedInOnly: boolean; prize?
 }
 
 export async function removeRaffleWinnerAction(participantId: string) {
-  return toResult(async () =>
-    removeRaffleWinner(db, await requireActionRole("SUPER_ADMIN", "ADMIN"), await currentEventId(), z.string().uuid().parse(participantId)),
-  );
+  return toResult(async () => {
+    await rateLimit(db, "raffle-remove-ip", await clientIp(), { limit: 100, windowSeconds: 3600 });
+    return removeRaffleWinner(db, await getActor(), await currentEventId(), z.string().uuid().parse(participantId));
+  });
 }
 
 export async function resetRaffleAction() {

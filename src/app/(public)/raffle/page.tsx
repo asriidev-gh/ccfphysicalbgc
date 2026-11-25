@@ -9,7 +9,7 @@ import { RaffleWheel } from "./wheel";
 export const metadata = { title: "Raffle Draw" };
 export const dynamic = "force-dynamic";
 
-/** Public: no sign-in needed to spin. Only a signed-in admin can reset the winners. */
+/** Public: no sign-in needed to spin or remove a winner. Only a signed-in admin can reset the whole draw. */
 export default async function RafflePage() {
   const [event, actor] = await Promise.all([getCurrentEvent(), getActor()]);
   return (
