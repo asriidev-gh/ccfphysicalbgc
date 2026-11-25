@@ -46,9 +46,9 @@ export default async function AwardeesPage() {
                 <h2 className="font-display mb-3 text-center text-2xl font-bold">
                   <span aria-hidden>{cats[0].emoji}</span> {g}
                 </h2>
-                <div className="grid grid-cols-2 gap-3">
+                <div className={cats.length > 1 ? "grid grid-cols-2 gap-3" : "grid gap-3"}>
                   {cats.map((c) => (
-                    <AwardPanel key={c.id} label={c.gender === "MALE" ? "Male" : "Female"} a={byCategory.get(c.id)} />
+                    <AwardPanel key={c.id} label={c.gender === "MALE" ? "Male" : c.gender === "FEMALE" ? "Female" : "Winner"} a={byCategory.get(c.id)} />
                   ))}
                 </div>
               </li>
@@ -137,7 +137,7 @@ function Champion({ label, board, hidden }: { label: string; board: Leaderboard 
 
 type Awardee = Awaited<ReturnType<typeof listAwardees>>[number];
 
-/** One gender's winner inside a combined award card. Unrevealed names, photos and counts never reach the browser. */
+/** One category's winner inside an award card. Unrevealed names, photos and counts never reach the browser. */
 function AwardPanel({ label, a }: { label: string; a: Awardee | undefined }) {
   const lead = a?.nominees[0];
   return (

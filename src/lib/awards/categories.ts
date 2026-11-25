@@ -56,9 +56,11 @@ export const AWARD_CATEGORIES = [
     gender: "FEMALE",
     group: "Olympia",
   },
+  // One winner overall: men and women compete for the same award.
+  { id: "most-friendly", label: "Most Friendly", emoji: "🤝", blurb: "A warm welcome for everyone.", gender: null, group: "Most Friendly" },
 ] as const satisfies readonly { id: string; label: string; emoji: string; blurb: string; gender: AwardGender | null; group: string }[];
 
-/** Award groups in display order; each pairs a male and a female category. */
+/** Award groups in display order; each is a male and female pair, or a single open category. */
 export const AWARD_GROUPS: string[] = [...new Set<string>(AWARD_CATEGORIES.map((c) => c.group))];
 
 export type AwardCategory = (typeof AWARD_CATEGORIES)[number];

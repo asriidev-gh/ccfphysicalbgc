@@ -14,8 +14,15 @@ describe("award eligibility", () => {
   });
 
   it("keeps open awards open to everyone, including people with no gender on file", () => {
-    expect(eligibleCategories(null).map((c) => c.id)).toEqual(["best-outfit", "most-punctual"]);
-    expect(eligibleCategories("MALE").map((c) => c.id)).toEqual(["best-outfit", "most-punctual", "mr-energetic", "mr-olympia"]);
+    expect(eligibleCategories(null).map((c) => c.id)).toEqual(["most-friendly"]);
+    expect(eligibleCategories("MALE").map((c) => c.id)).toEqual([
+      "best-outfit-male",
+      "most-punctual-male",
+      "mr-energetic",
+      "mr-olympia",
+      "most-friendly",
+    ]);
+    expect(canBeNominated("most-friendly", "FEMALE")).toBe(true);
   });
 
   it("rejects unknown categories", () => {
