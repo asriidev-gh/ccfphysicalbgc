@@ -109,8 +109,8 @@ export async function saveActivity(db: Db, actor: Actor, raw: unknown) {
     if (id) {
       const prev = await tx.eventActivity.findUnique({ where: { id } });
       if (!prev) throw new AppError("NOT_FOUND", "Activity not found.");
-      // Rules lock once anything has been scored; attempts that are cancelled or not yet scored don't count.
-      const scored = await tx.challengeResult.count({ where: { attempt: { activityId: id } } });
+      // Rules lock while any score stands; deleted scores, and cancelled or unscored attempts, don't count.
+      const scored = await tx.challengeResult.count({ where: { current: true, attempt: { activityId: id } } });
       const changed = JSON.stringify(parseScoringConfig(prev.scoringConfig).data ?? prev.scoringConfig) !== JSON.stringify(cfg.data);
       let scoringVersion = prev.scoringVersion;
       if (changed) {

@@ -230,13 +230,27 @@ describe("permissions", () => {
     await db.eventActivity.update({ where: { id: a.id }, data: { scoringConfig: { template: "POINTS", fields: [] } } });
     expect(await code(setActivityState(db, w.admin, a.id, { challengeStatus: "ACTIVE" }))).toBe("VALIDATION");
 
-    const b = await w.makeActivity();
+    const b = await w.makeActivity({ requireApproval: false });
     const ar = await enrol(b.id);
-    await startAttempt(db, w.lead, { activityRegistrationId: ar.id });
-    const changed = defaultScoringConfig("POINTS");
-    expect(
-      await code(saveActivity(db, w.admin, { id: b.id, eventId: w.event.id, sportId: w.sport.id, name: b.name, scoringConfig: changed })),
-    ).toBe("CONFLICT");
+    const s = await startAttempt(db, w.lead, { activityRegistrationId: ar.id });
+    const change = (template: "POINTS" | "REPS") =>
+      code(
+        saveActivity(db, w.admin, {
+          id: b.id,
+          eventId: w.event.id,
+          sportId: w.sport.id,
+          name: b.name,
+          scoringConfig: defaultScoringConfig(template),
+        }),
+      );
+    expect(await change("POINTS")).toBe("OK"); // started but not scored
+
+    await finishAttempt(db, w.lead, s.attemptId);
+    const r = await submitResult(db, w.lead, { attemptId: s.attemptId, raw: { points: 3 }, submitKey: `lock-${randomUUID()}` });
+    expect(await change("REPS")).toBe("CONFLICT");
+
+    await deleteResult(db, w.lead, r.resultId);
+    expect(await change("REPS")).toBe("OK"); // a deleted score no longer locks the rules
   });
 });
 

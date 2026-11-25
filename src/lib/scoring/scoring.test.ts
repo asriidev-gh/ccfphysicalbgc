@@ -128,6 +128,23 @@ describe("repetitions / CrossFit", () => {
   });
 });
 
+describe("longest time wins", () => {
+  it("ranks the longest stopwatch time first and keeps each player's longest attempt", () => {
+    const cfg = scoringConfigSchema.parse({
+      ...defaultScoringConfig("TIME"),
+      primary: { direction: "desc" },
+      attemptPolicy: { maxAttempts: 2, select: "BEST" },
+    });
+    const run = (id: string, ms: number, attempt = 1) => ({ ...entry(cfg, id, {}, { elapsedMs: ms }), attemptNumber: attempt });
+    const ranked = rankEntries(cfg, [run("short", 20_000), run("long", 95_000), run("mid", 30_000), run("mid", 60_000, 2)]);
+    expect(ranked.map((r) => [r.id, r.rank, r.primary])).toEqual([
+      ["long", 1, 95_000],
+      ["mid", 2, 60_000],
+      ["short", 3, 20_000],
+    ]);
+  });
+});
+
 describe("typed times", () => {
   it("reads seconds, minutes and hours, and rejects anything else", () => {
     expect(["1.88", "0:01.880", "1:23.45", "1:02:03", "90"].map(parseDuration)).toEqual([1880, 1880, 83_450, 3_723_000, 90_000]);

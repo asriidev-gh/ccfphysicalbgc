@@ -44,8 +44,8 @@ export default async function ActivityEditor({
           assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
         },
       });
-  // Rules lock once a result is recorded (matches saveActivity); unscored or cancelled attempts don't lock them.
-  const scoredCount = act ? await db.challengeResult.count({ where: { attempt: { activityId: act.id } } }) : 0;
+  // Rules lock while a score stands (matches saveActivity); deleted scores and unscored attempts don't lock them.
+  const scoredCount = act ? await db.challengeResult.count({ where: { current: true, attempt: { activityId: act.id } } }) : 0;
   if (!isNew && !act) notFound();
 
   const eventId = act?.eventId ?? one(sp.event);
