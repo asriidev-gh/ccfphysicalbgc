@@ -1,3 +1,4 @@
+import type { SportRank } from "@/lib/awards/overall";
 import type { Db } from "@/lib/db";
 import { formatDuration, type ResultStatusValue } from "@/lib/scoring/engine";
 import { buildMatchStandings, rankEntries, type MatchRecord, type RankEntry } from "@/lib/scoring/ranking";
@@ -37,6 +38,8 @@ interface Opts {
   limit?: number;
   /** Rank only participants of this gender (ranks are recomputed within the group). */
   gender?: "MALE" | "FEMALE";
+  /** Server-side only: told each ranked participant, since the public rows deliberately carry no ids. */
+  onRank?: (entry: SportRank) => void;
 }
 
 export function parseGender(v: string | null | undefined): "MALE" | "FEMALE" | undefined {
@@ -135,6 +138,21 @@ export async function getLeaderboard(db: Db, activityId: string, opts: Opts = {}
   if (opts.limit) ranked = ranked.filter((r) => r.rank === null || r.rank <= opts.limit!);
   const newest = results.reduce<Date | null>((m, r) => (!m || r.submittedAt > m ? r.submittedAt : m), null);
 
+  if (opts.onRank) {
+    const players = new Set(ranked.filter((r) => r.rank !== null).map((r) => r.id)).size;
+    for (const r of ranked)
+      if (r.rank !== null)
+        opts.onRank({
+          participantId: r.id,
+          name: r.name,
+          photoUrl: photos.get(r.id) ?? null,
+          activityId,
+          rank: r.rank,
+          result: formatValue(cfg, r.primary),
+          players,
+        });
+  }
+
   const rows: LeaderboardRow[] = ranked.map((r) => ({
     rank: r.rank,
     name: r.name,
@@ -160,12 +178,18 @@ export async function getLeaderboard(db: Db, activityId: string, opts: Opts = {}
 }
 
 /** All publicly listed activities for an event, each with its published leaderboard. */
-export async function getEventBoards(db: Db, eventId: string, limit?: number, gender?: "MALE" | "FEMALE"): Promise<Leaderboard[]> {
+export async function getEventBoards(
+  db: Db,
+  eventId: string,
+  limit?: number,
+  gender?: "MALE" | "FEMALE",
+  onRank?: Opts["onRank"],
+): Promise<Leaderboard[]> {
   const acts = await db.eventActivity.findMany({
     where: { eventId, leaderboardPublished: true, challengeStatus: { not: "DRAFT" }, sport: { active: true } },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true },
   });
-  const boards = await Promise.all(acts.map((a) => getLeaderboard(db, a.id, { limit, gender })));
+  const boards = await Promise.all(acts.map((a) => getLeaderboard(db, a.id, { limit, gender, onRank })));
   return boards.filter((b): b is Leaderboard => b !== null);
 }

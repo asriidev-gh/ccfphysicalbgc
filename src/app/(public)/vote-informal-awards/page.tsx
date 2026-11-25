@@ -37,6 +37,8 @@ export default async function AwardsPage() {
       ])
     : [[], {}, [], []];
   const sports = boards.map((b) => ({ id: b.activity.id, name: b.activity.name }));
+  // Same reveal switch for the Overall Champions card.
+  if (sports.length > 0) sports.unshift({ id: "overall", name: "Overall" });
 
   return (
     <>

@@ -5,6 +5,7 @@ import { AWARD_CATEGORIES, AWARD_GROUPS } from "@/lib/awards/categories";
 import { db } from "@/lib/db";
 import { getCurrentEvent } from "@/lib/event";
 import { listAwardees, listRevealed } from "@/lib/services/awards";
+import { OVERALL_MIN_SPORTS, overallStandings, type OverallEntry, type SportRank } from "@/lib/awards/overall";
 import { ATHLETE_PREFIX } from "@/lib/awards/categories";
 import { getEventBoards, type Leaderboard, type LeaderboardRow } from "@/lib/services/leaderboard";
 import { SportIcon } from "@/components/sport-icon";
@@ -14,11 +15,13 @@ export const dynamic = "force-dynamic";
 
 export default async function AwardeesPage() {
   const event = await getCurrentEvent();
+  const maleRanks: SportRank[] = [];
+  const femaleRanks: SportRank[] = [];
   const [awardees, maleBoards, femaleBoards, revealed] = event
     ? await Promise.all([
         listAwardees(db, event.id),
-        getEventBoards(db, event.id, 1, "MALE"),
-        getEventBoards(db, event.id, 1, "FEMALE"),
+        getEventBoards(db, event.id, undefined, "MALE", (r) => maleRanks.push(r)),
+        getEventBoards(db, event.id, undefined, "FEMALE", (r) => femaleRanks.push(r)),
         listRevealed(db, event.id),
       ])
     : [[], [], [], new Set<string>()];
@@ -55,6 +58,23 @@ export default async function AwardeesPage() {
             );
           })}
         </ul>
+
+        {maleBoards.length > 0 && (
+          <section aria-labelledby="overall" className="mt-14">
+            <div className="mb-6 text-center">
+              <h2 id="overall" className="font-display gold-text text-4xl leading-none font-bold">
+                Overall Champions
+              </h2>
+              <p className="text-muted mt-2 text-sm">
+                The best average finishing place across sports, for those who played at least {OVERALL_MIN_SPORTS}.
+              </p>
+            </div>
+            <div className="border-line bg-surface mx-auto grid max-w-xl grid-cols-2 gap-3 rounded-2xl border p-4">
+              <Overall label="Male" ranks={maleRanks} boards={maleBoards} hidden={!revealed.has(ATHLETE_PREFIX + "overall")} />
+              <Overall label="Female" ranks={femaleRanks} boards={femaleBoards} hidden={!revealed.has(ATHLETE_PREFIX + "overall")} />
+            </div>
+          </section>
+        )}
 
         {maleBoards.length > 0 && (
           <section aria-labelledby="top-athletes" className="mt-14">
@@ -131,6 +151,88 @@ function Champion({ label, board, hidden }: { label: string; board: Leaderboard 
           <p className="text-muted mt-2 text-sm">No result yet</p>
         </>
       )}
+    </div>
+  );
+}
+
+/** One gender's overall winner (several only for an exact tie). */
+function Overall({ label, ranks, boards, hidden }: { label: string; ranks: SportRank[]; boards: Leaderboard[]; hidden: boolean }) {
+  const tops: OverallEntry[] = overallStandings(ranks).filter((e) => e.rank === 1);
+  // Unrevealed: the real name, photo and average are never sent to the browser.
+  const lead = hidden ? undefined : tops[0];
+  return (
+    <div className="bg-surface-2 flex flex-col items-center rounded-xl px-2 py-4 text-center">
+      <p className="text-gold text-xs font-bold tracking-widest uppercase">{label}</p>
+      {hidden && tops.length > 0 ? (
+        <>
+          <div className="mt-2 w-28 blur-md select-none" aria-hidden>
+            <StarPhoto name="? ?" photoUrl={null} size={224} />
+          </div>
+          <p className="mt-2 text-sm leading-snug font-bold blur-sm select-none" aria-hidden>
+            Mystery Athlete
+          </p>
+          <p className="text-gold mt-1 text-xs font-bold">Revealing soon…</p>
+        </>
+      ) : lead ? (
+        <>
+          <div className="mt-2 w-28">
+            <StarPhoto name={lead.name} photoUrl={lead.photoUrl} size={224} leader />
+          </div>
+          <p className="gold-text font-display mt-2 text-lg leading-tight font-bold break-words">{lead.name}</p>
+          {tops.length > 1 && (
+            <p className="text-muted text-xs">
+              Tied with{" "}
+              {tops
+                .slice(1)
+                .map((t) => t.name)
+                .join(", ")}
+            </p>
+          )}
+          <p className="text-gold tabular mt-1 text-xs font-bold">
+            Average place {Number(lead.average.toFixed(2))} · {lead.sports} sports
+          </p>
+          {tops.map((t) => (
+            <Breakdown key={t.participantId} entry={t} boards={boards} name={tops.length > 1 ? t.name : undefined} />
+          ))}
+        </>
+      ) : (
+        <>
+          <div className="text-muted mt-2 flex aspect-square w-28 items-center justify-center" aria-hidden>
+            <Star className="size-10 opacity-40" />
+          </div>
+          <p className="text-muted mt-2 text-sm">No result yet</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
+
+/** Why they won: their place and result in every sport they played. */
+function Breakdown({ entry, boards, name }: { entry: OverallEntry; boards: Leaderboard[]; name?: string }) {
+  // Listed in the same order as the sports elsewhere on the site.
+  const places = boards.flatMap((b) => {
+    const p = entry.places.find((x) => x.activityId === b.activity.id);
+    return p ? [{ ...p, sport: b.activity.name }] : [];
+  });
+  return (
+    <div className="border-line mt-3 w-full border-t pt-3 text-left">
+      {name && <p className="mb-1 text-center text-xs font-bold">{name}</p>}
+      <ul className="grid gap-2">
+        {places.map((p) => (
+          <li key={p.activityId} className="flex items-start justify-between gap-2 text-xs">
+            <span className="min-w-0 break-words">
+              <span className="font-semibold">{p.sport}</span>
+              <span className="text-muted tabular block">{p.result}</span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="text-gold font-bold">{ordinal(p.rank)}</span>
+              <span className="text-muted block">of {p.players}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
