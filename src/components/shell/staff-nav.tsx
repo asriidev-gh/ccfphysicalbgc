@@ -23,6 +23,7 @@ import {
   Trophy,
   UserCog,
   Users,
+  Gift,
   type LucideIcon,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
@@ -46,6 +47,7 @@ const ICONS = {
   booth: Camera,
   prayers: HandHeart,
   awards: Award,
+  raffle: Gift,
   reports: BarChart3,
   audit: ScrollText,
   settings: Settings,
