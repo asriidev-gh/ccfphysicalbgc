@@ -754,6 +754,7 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
   const chosen = selectable.filter((r) => picked.has(r.id));
   const [groupName, setGroupName] = useState("");
   const [editing, setEditing] = useState<string | null>(null); // attempt whose result is open for editing
+  const remover = useAct(); // deleting a result must not disable anything else
   const ungroupedChosen = chosen;
   const groupNames = new Map(data.groups.map((g) => [g.id, g.name]));
 
@@ -1039,6 +1040,11 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
         {!groupMode && heatList.length > 0 && (
           <div className="space-y-2">
             <p className="text-muted text-xs tracking-wider uppercase">{/run/i.test(data.activity.name) ? "Race" : "Challenge"} results</p>
+            {remover.error && (
+              <p role="alert" className="text-bad text-sm">
+                {remover.error}
+              </p>
+            )}
             {heatList.map(([n, items], i) => {
               // Shown number counts the races in this list (oldest = 1); `n` is only the stored id, which can have gaps.
               const ordered = [...items].sort((a, b) => {
@@ -1078,14 +1084,31 @@ function HeatPanel({ data, groupMode = false }: { data: LeadConsoleData; groupMo
                           )}
                         </div>
                         <span className="tabular font-display text-xl font-bold">{attempt.result!.display}</span>
-                        <Button
-                          variant="ghost"
-                          aria-label={`Edit ${row.name}'s result`}
-                          aria-expanded={editing === attempt.id}
-                          onClick={() => setEditing((e) => (e === attempt.id ? null : attempt.id))}
-                        >
-                          <Pencil className="size-4" aria-hidden /> Edit
-                        </Button>
+                        <div className="-mr-2 flex shrink-0 items-center">
+                          <Button
+                            variant="ghost"
+                            className="min-w-11 px-2 sm:px-3"
+                            aria-label={`Edit ${row.name}'s result`}
+                            title="Edit"
+                            aria-expanded={editing === attempt.id}
+                            onClick={() => setEditing((e) => (e === attempt.id ? null : attempt.id))}
+                          >
+                            <Pencil className="size-4" aria-hidden /> <span className="hidden sm:inline">Edit</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className="text-bad min-w-11 px-2 sm:px-3"
+                            aria-label={`Delete ${row.name}'s result`}
+                            title="Delete"
+                            disabled={remover.pending}
+                            onClick={() => {
+                              if (window.confirm(`Delete ${row.name}'s result (${attempt.result!.display})? It is removed from the leaderboard and they can run again.`))
+                                remover.run(() => deleteResultAction(attempt.result!.id));
+                            }}
+                          >
+                            <Trash2 className="size-4" aria-hidden /> <span className="hidden sm:inline">Delete</span>
+                          </Button>
+                        </div>
                         {editing === attempt.id && (
                           <div className="basis-full">
                             <EditScore
